@@ -5,7 +5,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from importlib.metadata import version
 
-from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
+from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 
 print('torch', version('torch'))
@@ -40,6 +40,9 @@ def main():
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
 
     parser.add_argument("--eval_zero_shot", action="store_true")
+
+    parser.add_argument("--compare_selection", action="store_true")
+
     args = parser.parse_args()
 
     # Setting seeds for reproducibility
@@ -63,6 +66,48 @@ def main():
         device = model.hf_device_map["lm_head"]
     print("use device ", device)
 
+    # ARCALA: Compare weight selection
+    if args.compare_selection:
+        intersect_list = []
+        difference_list = []
+
+        total_sum = 0
+        intersection_sum = 0
+
+        W_mag_list = prune_mag_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        W_wanda_list = prune_wanda_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        for idx, elem in enumerate(W_wanda_list):
+            wanda_flat = elem.flatten()
+            mag_flat = W_mag_list[idx].flatten()
+
+            total_size = wanda_flat.numel()
+            total_sum += total_size
+
+            intersection = torch.where(wanda_flat == mag_flat, wanda_flat, torch.tensor(0, device='cuda'))
+            count = intersection.sum().item()
+            intersection_sum += count
+            # Elements in tensor1 but not in tensor2
+            difference = total_size - count
+            print(f"layer {idx}: total_size: {total_size} intersection: {count} %:{count*100/total_size} difference: {difference} %:{difference*100/total_size}" )
+
+            # slow cpu method
+            # Convert to NumPy arrays
+            # np_tensor1 = wanda_flat.cpu().numpy()
+            # np_tensor2 = mag_flat.cpu().numpy()
+
+            # # Find intersection using NumPy
+            # intersection_np = np.intersect1d(np_tensor1, np_tensor2)
+            # # Find symmetric difference using NumPy
+            # symmetric_difference_np = np.setxor1d(np_tensor1, np_tensor2)
+
+            # print(f"layer {idx}: total_size: {total_size} intersection: {intersection_np.size} %:{intersection_np.size*100/total_size} difference: {symmetric_difference_np.size}" )
+
+        print("---------------")
+        print(f"Total total_size: {total_sum} intersection: {intersection_sum} %:{intersection_sum*100/total_sum} difference: {total_sum - intersection_sum} %:{(total_sum - intersection_sum)*100/total_sum}" )
+
+        exit()
+        pass
+
     if args.sparsity_ratio != 0:
         print("pruning starts")
         if args.prune_method == "wanda":
@@ -73,6 +118,7 @@ def main():
             prune_sparsegpt(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif "ablate" in args.prune_method:
             prune_ablate(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+
 
     ################################################################
     print("*"*30)
