@@ -129,6 +129,9 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     model.config.use_cache = False 
 
     print("loading calibdation data")
+    # trying wikitext loader
+    # dataloader, _ = get_loaders("wikitext2",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
@@ -139,9 +142,9 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         layer = layers[i]
         subset = find_layers(layer)
 
-        if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-            dev = model.hf_device_map[f"model.layers.{i}"]
-            inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(dev), position_ids.to(dev)
+        # if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
+        #     dev = model.hf_device_map[f"model.layers.{i}"]
+        #     inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(dev), position_ids.to(dev)
 
         wrapped_layers = {}
         for name in subset:
