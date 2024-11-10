@@ -91,18 +91,6 @@ def main():
             sparsity_size = total_size *args.sparsity_ratio
             print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size} intersection: {count} %:{count*100/sparsity_size}" )
 
-            # slow cpu method
-            # Convert to NumPy arrays
-            # np_tensor1 = wanda_flat.cpu().numpy()
-            # np_tensor2 = mag_flat.cpu().numpy()
-
-            # # Find intersection using NumPy
-            # intersection_np = np.intersect1d(np_tensor1, np_tensor2)
-            # # Find symmetric difference using NumPy
-            # symmetric_difference_np = np.setxor1d(np_tensor1, np_tensor2)
-
-            # print(f"layer {idx}: total_size: {total_size} intersection: {intersection_np.size} %:{intersection_np.size*100/total_size} difference: {symmetric_difference_np.size}" )
-
         print("---------------")
         sparsity_size = total_sum*args.sparsity_ratio
         print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size} intersection: {intersection_sum} %:{intersection_sum*100/sparsity_size}"  )
