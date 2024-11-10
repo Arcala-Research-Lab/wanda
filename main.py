@@ -88,7 +88,8 @@ def main():
             intersection_sum += count
             # Elements in tensor1 but not in tensor2
             difference = total_size - count
-            print(f"layer {idx}: total_size: {total_size} intersection: {count} %:{count*100/total_size} difference: {difference} %:{difference*100/total_size}" )
+            sparsity_size = total_size *args.sparsity_ratio
+            print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size} intersection: {count} %:{count*100/sparsity_size}" )
 
             # slow cpu method
             # Convert to NumPy arrays
@@ -103,7 +104,8 @@ def main():
             # print(f"layer {idx}: total_size: {total_size} intersection: {intersection_np.size} %:{intersection_np.size*100/total_size} difference: {symmetric_difference_np.size}" )
 
         print("---------------")
-        print(f"Total total_size: {total_sum} intersection: {intersection_sum} %:{intersection_sum*100/total_sum} difference: {total_sum - intersection_sum} %:{(total_sum - intersection_sum)*100/total_sum}" )
+        sparsity_size = total_sum*args.sparsity_ratio
+        print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size} intersection: {intersection_sum} %:{intersection_sum*100/sparsity_size}"  )
 
         exit()
         pass
