@@ -7,6 +7,8 @@ from importlib.metadata import version
 
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
+from lib.awq_mask import awq_mask
+from lib.awq_pre_quant_no_apply import run_awq
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -68,33 +70,59 @@ def main():
 
     # ARCALA: Compare weight selection
     if args.compare_selection:
-        intersect_list = []
-        difference_list = []
+        wanda_mag_intersect_list = []
+        wanda_mag_difference_list = []
+        wanda_awq_intersect_list = []
+        wanda_awq_difference_list = []
 
         total_sum = 0
-        intersection_sum = 0
+        wanda_mag_intersection_sum = 0
+        wanda_awq_intersection_sum = 0
 
-        W_mag_list = prune_mag_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        W_wanda_list = prune_wanda_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        # get quantization config (apart from w_bit)
+        # TODO: put awq_enabled, w_bit, group_size and no_zero_point as config params
+        q_config = {
+            "zero_point": True,  # by default True
+            "q_group_size": 128,  # whether to use group quantization
+        }
+        w_bit = 4
+        ret = run_awq(model, tokenizer, w_bit, q_config)
+
+        # AWQ uses a different device than wanda, so I did .to(device) on everything was consistent
+        W_mag_list = prune_mag_mask(args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        W_wanda_list = prune_wanda_mask(args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        W_awq_list = awq_mask(ret['scale'], W_mag_list)
         for idx, elem in enumerate(W_wanda_list):
             wanda_flat = elem.flatten()
             mag_flat = W_mag_list[idx].flatten()
+            awq_flat = W_awq_list[idx].flatten()
 
             total_size = wanda_flat.numel()
             total_sum += total_size
 
-            intersection = torch.where(wanda_flat == mag_flat, wanda_flat, torch.tensor(0, device='cuda'))
-            count = intersection.sum().item()
-            intersection_sum += count
+            wanda_mag_intersection = torch.where(wanda_flat == mag_flat, wanda_flat, torch.tensor(0, device='cuda'))
+            wanda_mag_count = wanda_mag_intersection.sum().item()
+            wanda_mag_intersection_sum += wanda_mag_count
+
+            wanda_awq_intersection = torch.where(wanda_flat == awq_flat, wanda_flat, torch.tensor(0, device='cuda'))
+            wanda_awq_count = wanda_awq_intersection.sum().item()
+            wanda_awq_intersection_sum += wanda_awq_count
+
             # Elements in tensor1 but not in tensor2
-            difference = total_size - count
+            wanda_mag_difference = total_size - wanda_mag_count
+            wanda_awq_difference = total_size - wanda_awq_count
+
             sparsity_size = total_size *args.sparsity_ratio
-            print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size} intersection: {count} %:{count*100/sparsity_size}" )
+
+            print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size}")
+            print(f"(wanda, mag) intersection: {wanda_mag_count} %:{wanda_mag_count*100/sparsity_size}")
+            print(f"(wanda, awq) intersection: {wanda_awq_count} %:{wanda_awq_count*100/sparsity_size}")
 
         print("---------------")
         sparsity_size = total_sum*args.sparsity_ratio
-        print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size} intersection: {intersection_sum} %:{intersection_sum*100/sparsity_size}"  )
-
+        print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size}")
+        print(f"(wanda, mag) intersection: {wanda_mag_intersection_sum} %:{wanda_mag_intersection_sum*100/sparsity_size}")
+        print(f"(wanda, awq) intersection: {wanda_awq_intersection_sum} %:{wanda_awq_intersection_sum*100/sparsity_size}")
         exit()
         pass
 
