@@ -87,7 +87,7 @@ def main():
         for sparsity in args.sparsity_ratios:
             W_mag_list = prune_mag_mask(sparsity, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
             W_wanda_list = prune_wanda_mask(sparsity, args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-            file_name = f'{sparsity}_mag.pt'
+            file_name = f'{sparsity}_mag_wanda.pt'
             torch.save((W_mag_list, W_wanda_list, sparsity), file_name)
             mag_lists.append(file_name)
             torch.cuda.empty_cache()
