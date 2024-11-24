@@ -2,13 +2,16 @@ import argparse
 import os 
 import numpy as np
 import torch
+from itertools import product
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from importlib.metadata import version
+from contextlib import redirect_stdout
 
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask
-from lib.awq_pre_quant_no_apply import run_awq
+from awq.quantize.pre_quant import run_awq
+
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -32,8 +35,9 @@ def main():
     parser.add_argument('--model', type=str, help='LLaMA model')
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
-    parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
+    parser.add_argument('--sparsity_ratios', type=float, nargs='+', default=[], help='Sparsity levels')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
+    parser.add_argument('--thresholds', type=float, nargs='+', default=[], help='AWQ Mask Thresholds')
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
@@ -70,17 +74,26 @@ def main():
 
     # ARCALA: Compare weight selection
     if args.compare_selection:
-        wanda_mag_intersect_list = []
-        wanda_mag_difference_list = []
-        wanda_awq_intersect_list = []
-        wanda_awq_difference_list = []
+        # unused
+        # wanda_mag_intersect_list = []
+        # wanda_mag_difference_list = []
+        # wanda_awq_intersect_list = []
+        # wanda_awq_difference_list = []
 
-        total_sum = 0
-        wanda_mag_intersection_sum = 0
-        wanda_awq_intersection_sum = 0
+        # get lists for all sparsities and thresholds
+        mag_lists = []
+        awq_lists = []
+        # # get all wanda masks for every sparsity ratio
+        for sparsity in args.sparsity_ratios:
+            W_mag_list = prune_mag_mask(sparsity, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+            W_wanda_list = prune_wanda_mask(sparsity, args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+            file_name = f'{sparsity}_mag.pt'
+            torch.save((W_mag_list, W_wanda_list, sparsity), file_name)
+            mag_lists.append(file_name)
+            torch.cuda.empty_cache()
+        W_mag_list, W_wanda_list, sparsity = torch.load(mag_lists[0])
 
         # get quantization config (apart from w_bit)
-        # TODO: put awq_enabled, w_bit, group_size and no_zero_point as config params
         q_config = {
             "zero_point": True,  # by default True
             "q_group_size": 128,  # whether to use group quantization
@@ -88,41 +101,77 @@ def main():
         w_bit = 4
         ret = run_awq(model, tokenizer, w_bit, q_config)
 
-        # AWQ uses a different device than wanda, so I did .to(device) on everything was consistent
-        W_mag_list = prune_mag_mask(args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        W_wanda_list = prune_wanda_mask(args, model.to(device), tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        W_awq_list = awq_mask(ret['scale'], W_mag_list)
-        for idx, elem in enumerate(W_wanda_list):
-            wanda_flat = elem.flatten()
-            mag_flat = W_mag_list[idx].flatten()
-            awq_flat = W_awq_list[idx].flatten()
+        # # get all awq masks for every thresholds
+        for threshold in args.thresholds:
+            W_awq_list = awq_mask(ret['scale'], W_mag_list, threshold)
+            file_name = f'{threshold}_awq.pt'
+            awq_lists.append(file_name)
+            torch.save((W_awq_list, threshold), file_name)
 
-            total_size = wanda_flat.numel()
-            total_sum += total_size
+        # converts pre-calculated llama thresholds to their corresponding percentile
+        threshold_to_percents = {3.46484375: '1', 2.21875 : '5', 1.8837890625: '10'}
 
-            wanda_mag_intersection = torch.where(wanda_flat == mag_flat, wanda_flat, torch.tensor(0, device='cuda'))
-            wanda_mag_count = wanda_mag_intersection.sum().item()
-            wanda_mag_intersection_sum += wanda_mag_count
+        # gets every combination of magnitude and threshold
+        for (mag_file, awq_file) in product(mag_lists, awq_lists):
+            W_mag_list, W_wanda_list, sparsity = torch.load(mag_file)
+            W_awq_list, threshold = torch.load(awq_file)
+            print(f'comparing {threshold}, {sparsity}')
+            with open(f'awq_{threshold_to_percents[threshold]}_wanda_{sparsity}', 'w') as log_file:
+                with redirect_stdout(log_file):
+                    # running totals for the current combination
+                    total_mag = 0
+                    total_awq = 0
+                    total_sum = 0
+                    wanda_mag_intersection_sum = 0
+                    wanda_awq_intersection_sum = 0
 
-            wanda_awq_intersection = torch.where(wanda_flat == awq_flat, wanda_flat, torch.tensor(0, device='cuda'))
-            wanda_awq_count = wanda_awq_intersection.sum().item()
-            wanda_awq_intersection_sum += wanda_awq_count
+                    for idx, elem in enumerate(W_wanda_list):
+                        wanda_flat = elem.flatten()
+                        mag_flat = W_mag_list[idx].flatten()
+                        awq_flat = W_awq_list[idx].flatten()
 
-            # Elements in tensor1 but not in tensor2
-            wanda_mag_difference = total_size - wanda_mag_count
-            wanda_awq_difference = total_size - wanda_awq_count
+                        total_size = wanda_flat.numel()
+                        total_sum += total_size
 
-            sparsity_size = total_size *args.sparsity_ratio
+                        # get # of weights that are kept by both wanda and mag/awq
+                        wanda_mag_intersection = torch.where((wanda_flat == 0) & (mag_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        wanda_mag_count = wanda_mag_intersection.sum().item()
+                        wanda_mag_intersection_sum += wanda_mag_count
 
-            print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size}")
-            print(f"(wanda, mag) intersection: {wanda_mag_count} %:{wanda_mag_count*100/sparsity_size}")
-            print(f"(wanda, awq) intersection: {wanda_awq_count} %:{wanda_awq_count*100/sparsity_size}")
+                        wanda_awq_intersection = torch.where((wanda_flat == 0) & (awq_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        wanda_awq_count = wanda_awq_intersection.sum().item()
+                        wanda_awq_intersection_sum += wanda_awq_count
 
-        print("---------------")
-        sparsity_size = total_sum*args.sparsity_ratio
-        print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size}")
-        print(f"(wanda, mag) intersection: {wanda_mag_intersection_sum} %:{wanda_mag_intersection_sum*100/sparsity_size}")
-        print(f"(wanda, awq) intersection: {wanda_awq_intersection_sum} %:{wanda_awq_intersection_sum*100/sparsity_size}")
+                        # get # of weights that are kept by mag/awq
+                        mag_zeroes = torch.where(mag_flat == 0, torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        num_wanda_mag = mag_zeroes.sum().item()
+                        total_mag += num_wanda_mag
+
+                        awq_zeroes = torch.where(awq_flat == 0, torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        num_wanda_awq = awq_zeroes.sum().item()
+                        total_awq += num_wanda_awq
+
+                        # Elements in tensor1 but not in tensor2 (unused)
+                        # wanda_mag_difference = total_size - wanda_mag_count
+                        # wanda_awq_difference = total_size - wanda_awq_count
+
+                        # the percent corresponds to the following question:
+                        # out of all the weights awq chose as salient, how many did wanda also determine as salient?
+                        wanda_awq_percent = wanda_awq_count*100/num_wanda_awq if num_wanda_awq != 0 else 'N/A (all below threshold)'
+
+                        sparsity_size = total_size*sparsity
+                        print(f"layer {idx}: total_size: {total_size} sparsity_size: {sparsity_size} AWQ threshold: {threshold_to_percents[threshold]}%")
+                        print(f"(wanda, mag) intersection: {wanda_mag_count} %:{wanda_mag_count*100/num_wanda_mag}")
+                        print(f"(wanda, awq) intersection: {wanda_awq_count} %:{wanda_awq_percent}")
+
+                    print("---------------")
+                    assert wanda_mag_intersection_sum <= total_mag, "Numerator exceeds denominator!"
+                    sparsity_size = total_sum*sparsity
+                    print(f"Total magnitude kept weights: {total_mag} awq kept weights: {total_awq}")
+                    print(f"Total total_size: {total_sum} sparsity_size: {sparsity_size} AWQ threshold: {threshold_to_percents[threshold]}%")
+                    print(f"(wanda, mag) intersection: {wanda_mag_intersection_sum} %:{wanda_mag_intersection_sum*100/total_mag}")
+                    print(f"(wanda, awq) intersection: {wanda_awq_intersection_sum} %:{wanda_awq_intersection_sum*100/total_awq}")
+                    torch.cuda.empty_cache()
         exit()
         pass
 

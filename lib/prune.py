@@ -119,13 +119,13 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                         tmp = W_metric[:,ii:(ii+prune_m)].float()
                         W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
             else:
-                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel()*args.sparsity_ratio)].cpu()
+                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel()*args.sparsity)].cpu()
                 W_mask = (W_metric<=thresh)
 
             W[W_mask] = 0
 
 # ARCALA function to create magnitude mask
-def prune_mag_mask(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def prune_mag_mask(sparsity, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     layers = model.model.layers 
 
     W_mag_mask_list = []
@@ -145,7 +145,7 @@ def prune_mag_mask(args, model, tokenizer, device=torch.device("cuda:0"), prune_
                         tmp = W_metric[:,ii:(ii+prune_m)].float()
                         W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
             else:
-                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel()*args.sparsity_ratio)].cpu()
+                thresh = torch.sort(W_metric.flatten().cuda())[0][int(W.numel()*sparsity)].cpu()
                 W_mask = (W_metric<=thresh)
 
             W_mag_mask_list.append(W_mask)
@@ -244,7 +244,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
 # ARCALA function to extract pruning mask
 
-def prune_wanda_mask(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+def prune_wanda_mask(sparsity, args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     
     W_wanda_mask_list = []
 
@@ -309,8 +309,8 @@ def prune_wanda_mask(args, model, tokenizer, device=torch.device("cuda:0"), prun
                     alpha = 0.4
                     alpha_hist = [0., 0.8]
                     W_mask, cur_sparsity = return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before)
-                    while (torch.abs(cur_sparsity - args.sparsity_ratio)>0.001) and (alpha_hist[1]-alpha_hist[0]>=0.001):
-                        if cur_sparsity > args.sparsity_ratio:
+                    while (torch.abs(cur_sparsity - sparsity)>0.001) and (alpha_hist[1]-alpha_hist[0]>=0.001):
+                        if cur_sparsity > sparsity:
                             alpha_new = (alpha + alpha_hist[0]) / 2.0
                             alpha_hist[1] = alpha
                         else:
@@ -322,7 +322,7 @@ def prune_wanda_mask(args, model, tokenizer, device=torch.device("cuda:0"), prun
                     print(f"alpha found {alpha} sparsity {cur_sparsity:.6f}")
                 else:
                     # unstructured pruning
-                    indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
+                    indices = sort_res[1][:,:int(W_metric.shape[1]*sparsity)]
                     W_mask.scatter_(1, indices, True)
 
             W_wanda_mask_list.append(W_mask)
