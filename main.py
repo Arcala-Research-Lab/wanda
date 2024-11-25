@@ -137,7 +137,8 @@ def main():
                         total_sum += total_size
 
                         # get # of weights that are kept by both wanda and mag/awq
-                        wanda_mag_intersection = torch.where((wanda_flat == 1) & (mag_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        # wanda_mag_intersection = torch.where((wanda_flat == 1) & (mag_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        wanda_mag_intersection = torch.where((mag_flat == 1) & (wanda_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
                         wanda_mag_count = wanda_mag_intersection.sum().item()
                         wanda_mag_intersection_sum += wanda_mag_count
 
@@ -145,7 +146,7 @@ def main():
                         wanda_awq_count = wanda_awq_intersection.sum().item()
                         wanda_awq_intersection_sum += wanda_awq_count
 
-                        mag_awq_intersection = torch.where((wanda_flat == 1) & (awq_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
+                        mag_awq_intersection = torch.where((mag_flat == 1) & (awq_flat == 0), torch.tensor(1, device='cuda'), torch.tensor(0, device='cuda'))
                         mag_awq_count = mag_awq_intersection.sum().item()
                         mag_awq_intersection_sum += mag_awq_count
 
