@@ -2,13 +2,23 @@ import argparse
 import os 
 import numpy as np
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import tqdm
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from importlib.metadata import version
 
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask
 from lib.awq_pre_quant_no_apply import run_awq
+
+from awq.quantize.quantizer import real_quantize_model_weight
+from awq.utils.utils import simple_dispatch_model
+from accelerate import (
+    init_empty_weights,
+    infer_auto_device_map,
+    load_checkpoint_in_model,
+)
+from datasets import load_dataset
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -40,6 +50,12 @@ def main():
     parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
     parser.add_argument('--save', type=str, default=None, help='Path to save results.')
     parser.add_argument('--save_model', type=str, default=None, help='Path to save the pruned model.')
+    
+    # AWQ args
+    parser.add_argument("--load_quant", default=None, type=str, help='Path to previously computed AWQ quantization results')
+    parser.add_argument("--w_bit", type=int, default=None)
+    parser.add_argument("--q_group_size", type=int, default=-1)
+    parser.add_argument("--no_zero_point", action="store_true", help="disable zero_point")
 
     parser.add_argument("--eval_zero_shot", action="store_true")
 
@@ -57,11 +73,66 @@ def main():
         assert args.sparsity_ratio == 0.5, "sparsity ratio must be 0.5 for structured N:M sparsity"
         prune_n, prune_m = map(int, args.sparsity_type.split(":"))
 
-    model_name = args.model.split("/")[-1]
-    print(f"loading llm model {args.model}")
-    model = get_llm(args.model, args.cache_dir)
-    model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
+    """pasted from llm-awq entry.py"""
+    if args.load_quant:  # directly load quantized weights
+        q_config = {
+            "zero_point": not args.no_zero_point,  # by default True
+            "q_group_size": args.q_group_size,  # whether to use group quantization
+        }
+
+        config = AutoConfig.from_pretrained(args.model, trust_remote_code=True)
+        # Note (Haotian): To avoid OOM after huggingface transformers 4.36.2
+        config.use_cache = False
+        if "mpt" in config.__class__.__name__.lower():
+            tokenizer = AutoTokenizer.from_pretrained(
+                config.tokenizer_name, trust_remote_code=True
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(
+                args.model, use_fast=False, trust_remote_code=True
+            )
+
+        print("Loading pre-computed quantized weights...")
+        with init_empty_weights():
+            model = AutoModelForCausalLM.from_config(
+                config=config, torch_dtype=torch.float16, trust_remote_code=True
+            )
+        real_quantize_model_weight(
+            model, w_bit=args.w_bit, q_config=q_config, init_only=True
+        )
+
+        model.tie_weights()
+
+        # Infer device map
+        device_map = infer_auto_device_map(
+            model,
+            no_split_module_classes=[
+                "OPTDecoderLayer",
+                "LlamaDecoderLayer",
+                "BloomBlock",
+                "MPTBlock",
+                "DecoderLayer",
+            ],
+        )
+        # Load checkpoint in the model
+        load_checkpoint_in_model(
+            model,
+            checkpoint=args.load_quant,
+            device_map=device_map,
+            offload_state_dict=True,
+        )
+        # Dispatch model
+        model = simple_dispatch_model(model, device_map=device_map)
+
+        model.seqlen = model.config.max_position_embeddings # to make it work with pruning
+
+        model.eval()
+    else:
+        model_name = args.model.split("/")[-1]
+        print(f"loading llm model {args.model}")
+        model = get_llm(args.model, args.cache_dir)
+        model.eval()
+        tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
     device = torch.device("cuda:0")
     if "30b" in args.model or "65b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
