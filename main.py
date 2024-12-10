@@ -46,6 +46,7 @@ def main():
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
+    parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
     parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
     parser.add_argument('--save', type=str, default=None, help='Path to save results.')
@@ -123,8 +124,7 @@ def main():
         )
         # Dispatch model
         model = simple_dispatch_model(model, device_map=device_map)
-
-        model.seqlen = model.config.max_position_embeddings # to make it work with pruning
+        model.seqlen = model.config.max_position_embeddings 
 
         model.eval()
     else:
@@ -215,6 +215,7 @@ def main():
     print(f"sparsity sanity check {sparsity_ratio:.4f}")
     print("*"*30)
     ################################################################
+    model.seqlen = args.eval_seqlen if args.eval_seqlen else model.seqlen # for evaluating perplexity with specific seqlen
     ppl_test = eval_ppl(args, model, tokenizer, device)
     print(f"wikitext perplexity {ppl_test}")
 
