@@ -81,7 +81,12 @@ awq_pipeline() {
 
 # # ======= AWQ alone =======
 
-# awq_pipeline "meta-llama/Llama-2-7b-hf" "out/awq/awq_results" "out/awq/quant_dump" "out/perplexities/awq.txt"
+# awq_pipeline "meta-llama/Llama-2-7b-hf" 4 "out/awqalone/awq_results" "out/awqalone/quant_dump" "real" 2048 "out/perplexities/awqeval2k.txt"
+# test_quantize "meta-llama/Llama-2-7b-hf" 4 "out/awqalone/quant_dump" "real" 4096 "out/perplexities/awqeval4k.txt"
+
+# # ======= Baseline model ======
+# run_wanda "meta-llama/Llama-2-7b-hf" 0 "unstructured" "out/wanda/wanda" "out/wanda/wanda" 4096 "out/perplexities/llamaeval4k"
+# run_wanda "meta-llama/Llama-2-7b-hf" 0 "unstructured" "out/wanda/wanda" "out/wanda/wanda" 2048 "out/perplexities/llamaeval2k"
 
 # # ======= Wanda + AWQ =======
 
@@ -114,9 +119,9 @@ awq_pipeline() {
 #     "out/perplexities/wanda_awq/awq4_8eval2k.txt"
 
 # # ======= Wanda + AWQ 4:8 sparsity =======
-wanda_awq "out/wanda/wanda4_8" \
-    0 "unstructured" "out/wanda/wanda4_8" 2048 \
-    "out/perplexities/wanda/wanda4_8eval2k.txt" 4 \
-    "out/wanda_awq/awq4_8/awq_results" \
-    "out/wanda_awq/awq4_8/quant_dump" "real" 4096 \
-    "out/perplexities/wanda_awq/awq4_8eval4k.txt"
+# wanda_awq "out/wanda/wanda4_8" \
+#     0 "unstructured" "out/wanda/wanda4_8" 2048 \
+#     "out/perplexities/wanda/wanda4_8eval2k.txt" 4 \
+#     "out/wanda_awq/awq4_8/awq_results" \
+#     "out/wanda_awq/awq4_8/quant_dump" "real" 4096 \
+#     "out/perplexities/wanda_awq/awq4_8eval4k.txt"
