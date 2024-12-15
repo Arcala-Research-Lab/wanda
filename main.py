@@ -65,6 +65,11 @@ def main():
     parser.add_argument("--compare_selection", action="store_true")
     parser.add_argument('--save_comparisons', type=str, default=None, help='Path to save masks.')
 
+    # for making wanda keep salient weights
+    parser.add_argument('--awq_mask', type=str, default=None, help='Path to awq mask for keeping intersection with wanda')
+    parser.add_argument('--awq_scales', type=str, default=None, help='Path to awq scales for keeping intersection with wanda')
+    parser.add_argument("--scale_and_wmetric", action="store_true")
+    parser.add_argument("--capture_scaler_row", action="store_true")
     parser.add_argument("--calculate_masks", action="store_true")
     parser.add_argument('--sparsity_ratios', type=float, nargs='+', default=[], help='Sparsity levels for compare selection')
     parser.add_argument('--quantiles', type=float, nargs='+', default=[], help='AWQ Mask Thresholds')

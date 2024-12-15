@@ -172,6 +172,15 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
 
     layers = model.model.layers
+    mask_index = 0
+    scales_index = 0
+    s = []
+
+    if args.awq_mask:
+        awq_mask = torch.load(args.awq_mask)
+    if args.awq_scales:
+        awq_scales = torch.load(args.awq_scales)
+
     for i in range(len(layers)):
         layer = layers[i]
         subset = find_layers(layer)
@@ -200,7 +209,15 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for name in subset:
             print(f"pruning layer {i} name {name}")
-            W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+            if args.awq_scales:
+                W_metric = torch.abs(subset[name].weight.data) * awq_scales[scales_index].reshape((1, -1)).to(subset[name].weight.data.device)
+                if args.scale_and_wmetric:
+                    W_metric = W_metric * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                scales_index += 1
+            else:
+                if args.capture_scaler_row:
+                    s.append(wrapped_layers[name].scaler_row)
+                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))               
 
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
@@ -236,12 +253,19 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                     indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
                     W_mask.scatter_(1, indices, True)
 
+            if args.awq_mask:
+                W_mask = torch.logical_and(W_mask, torch.logical_not(awq_mask[mask_index]).reshape(W_mask.shape[0], W_mask.shape[1]).to(W_mask.device))
+                mask_index += 1
+
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
 
         for j in range(args.nsamples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         inps, outs = outs, inps
+
+    if args.capture_scaler_row:
+        torch.save(s, 'out/wanda_scales')
 
     model.config.use_cache = use_cache 
     torch.cuda.empty_cache()
