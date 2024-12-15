@@ -57,7 +57,8 @@ from peft import (
     LoraConfig,
     get_peft_model,
     get_peft_model_state_dict,
-    prepare_model_for_int8_training,
+    prepare_model_for_kbit_training,
+    # prepare_model_for_int8_training,
     set_peft_model_state_dict,
 )
 
@@ -317,7 +318,7 @@ def main():
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
     raw_datasets = load_dataset(
-        'allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz', 'validation': 'en/c4-validation.00000-of-00008.json.gz'}
+        'allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz', 'validation': 'en/c4-validation.00000-of-00008.json.gz'}
     )
 
     if "validation" not in raw_datasets.keys():
@@ -368,11 +369,19 @@ def main():
             padding_side="right",
             use_fast=True,
         )
-
-    model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch.float16, cache_dir=model_args.cache_dir, low_cpu_mem_usage=True, device_map="auto")
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(
+                "meta-llama/Llama-2-7b-hf", 
+                cache_dir=model_args.cache_dir, 
+                padding_side="right",
+                use_fast=True, 
+                token="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"
+        )
+    
+    model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch.float16, cache_dir=model_args.cache_dir, low_cpu_mem_usage=True, device_map="auto", load_in_8bit=True)
 
     ############################################################################################
-    model = prepare_model_for_int8_training(model)
+    model = prepare_model_for_kbit_training(model)
     config = LoraConfig(
         r=model_args.lora_r,
         lora_alpha=model_args.lora_alpha,
@@ -382,6 +391,12 @@ def main():
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, config)
+
+    print("\nLayer sparsities before fine-tuning - A expected 0; B expected 1 sparsity (initialized weights)\n")
+    for name, param in model.named_parameters():
+        sparsity = (param == 0).sum().item() / param.numel()  # Calculate sparsity
+        print(f"{name} sparsity: {sparsity:.4f}")
+
     ############################################################################################
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
@@ -525,11 +540,12 @@ def main():
     training_args.fp16 = True
     training_args.logging_steps = 10
     training_args.optim = "adamw_torch"
-    training_args.save_strategy = "steps"
+    training_args.save_strategy = "epoch"
     training_args.eval_steps = 10
-    training_args.save_steps = 50
+    # training_args.save_steps = 50
     training_args.save_total_limit = 15
     training_args.group_by_length = False
+    
     ################################################################################################################
 
     # Initialize our Trainer
@@ -561,6 +577,7 @@ def main():
         model = torch.compile(model)
     ############## code imported from alpaca-lora ###################
 
+
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -571,9 +588,17 @@ def main():
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         # trainer.save_model()  # Saves the tokenizer too for easy upload
 
+        print("\n\n\nLayer sparsities after fine-tuning - A and B expected 0 sparsity\n\n\n")
+        for name, param in model.named_parameters():
+            sparsity = (param == 0).sum().item() / param.numel()  # Calculate sparsity
+            print(f"{name} sparsity: {sparsity:.4f}")
+        
+
         #############################################################
         model.save_pretrained(training_args.output_dir)
-        torch.save(trainer.model.state_dict(), f"{training_args.output_dir}/adapter_model.bin")
+        print(training_args.output_dir)
+        torch.save(trainer.model.state_dict(), f"{training_args.output_dir}/adapter_model.bin") 
+        print(f"{training_args.output_dir}/adapter_model.bin")
         #############################################################
 
         metrics = train_result.metrics
