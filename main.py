@@ -63,6 +63,7 @@ def main():
     parser.add_argument("--eval_zero_shot", action="store_true")
 
     parser.add_argument("--compare_selection", action="store_true")
+    # parser.add_argument("--compare_selection", action="store_true")
     parser.add_argument('--save_comparisons', type=str, default=None, help='Path to save masks.')
 
     parser.add_argument("--calculate_masks", action="store_true")
