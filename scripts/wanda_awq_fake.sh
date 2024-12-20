@@ -77,22 +77,36 @@ awq_pipeline() {
 
 # # ======= Wanda + AWQ =======
 
-for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
-    wanda_awq "meta-llama/Llama-2-7b-hf" \
-        $sparsity "unstructured" "out/wanda/wanda$sparsity" 4096 \
-        "out/perplexities/wanda/wanda${sparsity}eval4k.txt" 4 \
-        "out/wanda_awq/awq${sparsity}/awq_results" \
-        "out/wanda_awq_fake/awq${sparsity}/quant_dump" "fake" 2048 \
-        "out/perplexities/wanda_awq_fake/awq${sparsity}eval2k.txt"
-done
+# for sparsity in 0.6 0.7 0.8 0.9; do
+#     wanda_awq "out/wanda/wanda$sparsity" \
+#         0 "unstructured" "out/wanda/wanda$sparsity" 4096 \
+#         "out/perplexities/wanda/wanda${sparsity}eval4k.txt" 4 \
+#         "out/wanda_awq/awq${sparsity}/awq_results" \
+#         "out/wanda_awq_fake/awq${sparsity}/quant_dump" "fake" 2048 \
+#         "out/perplexities/wanda_awq_fake/awq${sparsity}eval2k.txt"
+# done
 
 # ======= Wanda + AWQ eval (2k, 4k) =======
 
-for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
-    wanda_awq "out/wanda/wanda$sparsity" \
-        0 "unstructured" "out/wanda/wanda$sparsity" 2048 \
-        "out/perplexities/wanda/wanda${sparsity}eval2k.txt" 4 \
-        "out/wanda_awq/awq${sparsity}/awq_results" \
-        "out/wanda_awq_fake/awq${sparsity}/quant_dump" "fake" 4096 \
-        "out/perplexities/wanda_awq_fake/awq${sparsity}eval4k.txt"
-done
+# for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+#     wanda_awq "out/wanda/wanda$sparsity" \
+#         0 "unstructured" "out/wanda/wanda$sparsity" 2048 \
+#         "out/perplexities/wanda/wanda${sparsity}eval2k.txt" 4 \
+#         "out/wanda_awq/awq${sparsity}/awq_results" \
+#         "out/wanda_awq_fake/awq${sparsity}/quant_dump" "fake" 4096 \
+#         "out/perplexities/wanda_awq_fake/awq${sparsity}eval4k.txt"
+# done
+
+# wanda_awq "out/wanda/wanda4_8" \
+#     0.5 "4:8" "out/wanda/wanda4_8" 4096 \
+#     "out/perplexities/wanda/wanda4_8eval4k.txt" 4 \
+#     "out/wanda_awq/awq4_8/awq_results" \
+#     "out/wanda_awq_fake/awq4_8/quant_dump" "fake" 2048 \
+#     "out/perplexities/wanda_awq_fake/awq4_8eval2k.txt"
+
+# wanda_awq "out/wanda/wanda4_8" \
+#     0.5 "4:8" "out/wanda/wanda4_8" 2048 \
+#     "out/perplexities/wanda/wanda4_8eval2k.txt" 4 \
+#     "out/wanda_awq/awq4_8/awq_results" \
+#     "out/wanda_awq_fake/awq4_8/quant_dump" "fake" 4096 \
+#     "out/perplexities/wanda_awq_fake/awq4_8eval4k.txt"

@@ -210,10 +210,24 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         for name in subset:
             print(f"pruning layer {i} name {name}")
             if args.awq_scales:
-                W_metric = torch.abs(subset[name].weight.data) * awq_scales[scales_index].reshape((1, -1)).to(subset[name].weight.data.device)
-                if args.scale_and_wmetric:
-                    W_metric = W_metric * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                if args.normalize:
+                    weight = torch.abs(subset[name].weight.data)
+                    awq_indiv = awq_scales[scales_index].to(weight.device)
+                    wanda_scales = wrapped_layers[name].scaler_row
+                    # scale wanda by AWQ min-max
+                    wanda_scales = (wanda_scales-wanda_scales.min())/(wanda_scales.max()-wanda_scales.min())\
+                        *(awq_indiv.max()-awq_indiv.min())+awq_indiv.min()
+                    W_metric = weight * awq_indiv.reshape(1, -1) * wanda_scales.reshape(1, -1)
+                else:
+                    W_metric = torch.abs(subset[name].weight.data) * awq_scales[scales_index].reshape((1, -1)).to(subset[name].weight.data.device)
+                    if args.scale_and_wmetric:
+                        W_metric = W_metric * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
                 scales_index += 1
+            elif args.layerwise_scaling:
+                if name in ['self_attn.v_proj', 'mlp.gate_proj', 'mlp.up_proj', 'mlp.down_proj']:
+                    W_metric = torch.pow(torch.abs(subset[name].weight.data), 1.75)  * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                else:
+                    W_metric = torch.pow(torch.abs(subset[name].weight.data), 1.25)  * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
             else:
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
