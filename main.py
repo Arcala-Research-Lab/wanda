@@ -59,6 +59,8 @@ def main():
     parser.add_argument("--w_bit", type=int, default=None)
     parser.add_argument("--q_group_size", type=int, default=-1)
     parser.add_argument("--no_zero_point", action="store_true", help="disable zero_point")
+    parser.add_argument("--layerwise_scaling", action="store_true", help="implements weighing layers' scales differently for wanda")
+    parser.add_argument("--normalize", action="store_true", help="if normalizing all 3 when combining")
 
     parser.add_argument("--eval_zero_shot", action="store_true")
 
