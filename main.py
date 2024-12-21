@@ -1,26 +1,30 @@
 import argparse
 from contextlib import redirect_stdout
 from itertools import product
-import os 
+import os
+import sys 
 import numpy as np
 import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from importlib.metadata import version
 
-from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
+from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
-from lib.awq_pre_quant_no_apply import run_awq
 
-from awq.quantize.quantizer import real_quantize_model_weight
-from awq.utils.utils import simple_dispatch_model
+try:
+    from lib.awq_pre_quant_no_apply import run_awq
+    from awq.quantize.quantizer import real_quantize_model_weight
+    from awq.utils.utils import simple_dispatch_model
+except ImportError:
+    print('NOTICE: AWQ not installed', file=sys.stderr)
+
 from accelerate import (
     init_empty_weights,
     infer_auto_device_map,
     load_checkpoint_in_model,
 )
-from datasets import load_dataset
 
 print('torch', version('torch'))
 print('transformers', version('transformers'))
@@ -59,6 +63,11 @@ def main():
     parser.add_argument("--w_bit", type=int, default=None)
     parser.add_argument("--q_group_size", type=int, default=-1)
     parser.add_argument("--no_zero_point", action="store_true", help="disable zero_point")
+
+    # parameters for analyzing Wmetric
+    parser.add_argument('--awq_scales', type=str, default=None, help='Path to awq scales for keeping intersection with wanda')
+    parser.add_argument("--scale_and_wmetric", action="store_true", help='applies AWQ scales first then wmetric')
+    parser.add_argument("--wmetric_and_scale", action="store_true", help='applies wmetric first then AWQ scales')
     parser.add_argument("--layerwise_scaling", action="store_true", help="implements weighing layers' scales differently for wanda")
     parser.add_argument("--normalize", action="store_true", help="if normalizing all 3 when combining")
 
@@ -70,8 +79,6 @@ def main():
 
     # for making wanda keep salient weights
     parser.add_argument('--awq_mask', type=str, default=None, help='Path to awq mask for keeping intersection with wanda')
-    parser.add_argument('--awq_scales', type=str, default=None, help='Path to awq scales for keeping intersection with wanda')
-    parser.add_argument("--scale_and_wmetric", action="store_true")
     parser.add_argument("--capture_scaler_row", action="store_true")
     parser.add_argument("--calculate_masks", action="store_true")
     parser.add_argument('--sparsity_ratios', type=float, nargs='+', default=[], help='Sparsity levels for compare selection')
