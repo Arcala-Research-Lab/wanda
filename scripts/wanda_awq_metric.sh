@@ -18,7 +18,7 @@ run_wanda () {
     --save_model $5 \
     --eval_seqlen $6 \
     --awq_scales "out/scales" \
-    --normalize \
+    --wmetric_and_scale \
     > $7
 }
 
@@ -96,7 +96,7 @@ awq_pipeline() {
 #         "out/perplexities/$awq_dir/awq${sparsity}eval4k.txt"
 # done
 
-# # ======= Wanda (+ 30% kept) + AWQ =======
+# # ======= Weight*AWQ*Wanda + AWQ =======
 
 # wanda_dir="wanda_wmetric_awqandwanda"
 # awq_dir="wanda_awq_wmetric_awqandwanda"
@@ -110,7 +110,7 @@ awq_pipeline() {
 #         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
 # done
 
-# # ======= Wanda (+ 30% kept) + AWQ eval (2k, 4k) =======
+# # ======= Weight*AWQ*Wanda eval (2k, 4k) =======
 
 # for sparsity in 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
 #     wanda_awq "out/$wanda_dir/wanda$sparsity" \
@@ -164,10 +164,35 @@ awq_pipeline() {
 
 # ======= Wanda (Normalized Wanda + AWQ) + AWQ Structured =======
 
-wanda_dir="wanda_wmetric_normalized"
-awq_dir="wanda_awq_wmetric_normalized"
+# wanda_dir="wanda_wmetric_normalized"
+# awq_dir="wanda_awq_wmetric_normalized"
 
-for sparsity in 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+# for sparsity in 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+#     wanda_awq "meta-llama/Llama-2-7b-hf" \
+#         $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
+#         "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
+#         "out/$awq_dir/awq${sparsity}/awq_results" \
+#         "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 2048 \
+#         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
+# done
+
+# # ======= Wanda (Normalized Wanda + AWQ) + AWQ eval (2k, 4k) =======
+
+# for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+#     wanda_awq "out/$wanda_dir/wanda$sparsity" \
+#         0 "unstructured" "out/$wanda_dir/wanda$sparsity" 2048 \
+#         "out/perplexities/$wanda_dir/wanda${sparsity}eval2k.txt" 4 \
+#         "out/$awq_dir/awq${sparsity}/awq_results" \
+#         "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 4096 \
+#         "out/perplexities/$awq_dir/awq${sparsity}eval4k.txt"
+# done
+
+# ======= Weight*AWQ*Wanda + AWQ =======
+
+wanda_dir="wanda_wmetric_wandaandawq"
+awq_dir="wanda_awq_wmetric_wandaandawq"
+
+for sparsity in 0.9; do
     wanda_awq "meta-llama/Llama-2-7b-hf" \
         $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
         "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
@@ -176,9 +201,9 @@ for sparsity in 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
 done
 
-# ======= Wanda (+ 30% kept) + AWQ eval (2k, 4k) =======
+# ======= Weight*AWQ*Wanda eval (2k, 4k) =======
 
-for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+for sparsity in 0.9; do
     wanda_awq "out/$wanda_dir/wanda$sparsity" \
         0 "unstructured" "out/$wanda_dir/wanda$sparsity" 2048 \
         "out/perplexities/$wanda_dir/wanda${sparsity}eval2k.txt" 4 \
