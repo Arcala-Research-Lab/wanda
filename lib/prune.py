@@ -8,9 +8,7 @@ from .data import get_loaders
 
 from .ablate import AblateGPT 
 
-from awq.quantize.qmodule import WQLinear
-
-def find_layers(module, layers=[nn.Linear, WQLinear], name=''):
+def find_layers(module, layers=[nn.Linear], name=''):
     """
     Recursively find the layers of a certain type in a module.
 
@@ -23,8 +21,6 @@ def find_layers(module, layers=[nn.Linear, WQLinear], name=''):
         dict: Dictionary of layers of the given type(s) within the module.
     """
     if type(module) in layers:
-        if isinstance(module, WQLinear):
-            module.weight = module.qweight
         return {name: module}
     res = {}
     for name1, child in module.named_children():
