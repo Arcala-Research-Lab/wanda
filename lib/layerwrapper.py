@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from awq.quantize.qmodule import WQLinear
-
 # Define WrappedGPT class
 class WrappedGPT:
     """
@@ -25,7 +23,7 @@ class WrappedGPT:
         if len(inp.shape) == 2:
             inp = inp.unsqueeze(0)
         tmp = inp.shape[0]
-        if isinstance(self.layer, nn.Linear) or isinstance(self.layer, WQLinear):
+        if isinstance(self.layer, nn.Linear):
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
