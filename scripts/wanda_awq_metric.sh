@@ -17,8 +17,7 @@ run_wanda () {
     --save $4 \
     --save_model $5 \
     --eval_seqlen $6 \
-    --awq_scales "out/scales" \
-    --wmetric_and_scale \
+    --layerwise_scaling \
     > $7
 }
 
@@ -123,10 +122,10 @@ awq_pipeline() {
 
 # ======= Wanda (Different Layers Scaled) + AWQ =======
 
-# wanda_dir="wanda_wmetric_layered"
-# awq_dir="wanda_awq_wmetric_layered"
+wanda_dir="wanda_wmetric_layered"
+awq_dir="wanda_awq_wmetric_layered"
 
-# for sparsity in 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+# for sparsity in 0.1 0.2 0.3; do
 #     wanda_awq "meta-llama/Llama-2-7b-hf" \
 #         $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
 #         "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
@@ -135,9 +134,9 @@ awq_pipeline() {
 #         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
 # done
 
-# ======= Wanda (Different layers scaled) + AWQ eval (2k, 4k) =======
+# # ======= Wanda (Different layers scaled) + AWQ eval (2k, 4k) =======
 
-# for sparsity in 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+# for sparsity in 0.1 0.2 0.3; do
 #     wanda_awq "out/$wanda_dir/wanda$sparsity" \
 #         0 "unstructured" "out/$wanda_dir/wanda$sparsity" 2048 \
 #         "out/perplexities/$wanda_dir/wanda${sparsity}eval2k.txt" 4 \
@@ -161,6 +160,22 @@ awq_pipeline() {
 #     "out/$awq_dir/awq4_8/awq_results" \
 #     "out/$awq_dir/awq4_8/quant_dump" "fake" 4096 \
 #     "out/perplexities/$awq_dir/awq4_8eval4k.txt"
+
+# ======= Wanda (Different layers scaled) + AWQ Structured =======
+
+wanda_awq "meta-llama/Llama-2-7b-hf" \
+    0.5 "2:4" "out/$wanda_dir/wanda2_4" 4096 \
+    "out/perplexities/$wanda_dir/wanda2_4eval4k.txt" 4 \
+    "out/$awq_dir/awq2_4/awq_results" \
+    "out/$awq_dir/awq2_4/quant_dump" "fake" 2048 \
+    "out/perplexities/$awq_dir/awq2_4eval2k.txt"
+
+wanda_awq "out/$wanda_dir/wanda2_4" \
+    0 "unstructured" "out/$wanda_dir/wanda2_4" 2048 \
+    "out/perplexities/$wanda_dir/wanda2_4eval2k.txt" 4 \
+    "out/$awq_dir/awq2_4/awq_results" \
+    "out/$awq_dir/awq2_4/quant_dump" "fake" 4096 \
+    "out/perplexities/$awq_dir/awq2_4eval4k.txt"
 
 # ======= Wanda (Normalized Wanda + AWQ) + AWQ Structured =======
 
@@ -189,25 +204,25 @@ awq_pipeline() {
 
 # ======= Weight*AWQ*Wanda + AWQ =======
 
-wanda_dir="wanda_wmetric_wandaandawq"
-awq_dir="wanda_awq_wmetric_wandaandawq"
+# wanda_dir="wanda_wmetric_wandaandawq"
+# awq_dir="wanda_awq_wmetric_wandaandawq"
 
-for sparsity in 0.9; do
-    wanda_awq "meta-llama/Llama-2-7b-hf" \
-        $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
-        "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
-        "out/$awq_dir/awq${sparsity}/awq_results" \
-        "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 2048 \
-        "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
-done
+# for sparsity in 0.9; do
+#     wanda_awq "meta-llama/Llama-2-7b-hf" \
+#         $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
+#         "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
+#         "out/$awq_dir/awq${sparsity}/awq_results" \
+#         "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 2048 \
+#         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
+# done
 
-# ======= Weight*AWQ*Wanda eval (2k, 4k) =======
+# # ======= Weight*AWQ*Wanda eval (2k, 4k) =======
 
-for sparsity in 0.9; do
-    wanda_awq "out/$wanda_dir/wanda$sparsity" \
-        0 "unstructured" "out/$wanda_dir/wanda$sparsity" 2048 \
-        "out/perplexities/$wanda_dir/wanda${sparsity}eval2k.txt" 4 \
-        "out/$awq_dir/awq${sparsity}/awq_results" \
-        "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 4096 \
-        "out/perplexities/$awq_dir/awq${sparsity}eval4k.txt"
-done
+# for sparsity in 0.9; do
+#     wanda_awq "out/$wanda_dir/wanda$sparsity" \
+#         0 "unstructured" "out/$wanda_dir/wanda$sparsity" 2048 \
+#         "out/perplexities/$wanda_dir/wanda${sparsity}eval2k.txt" 4 \
+#         "out/$awq_dir/awq${sparsity}/awq_results" \
+#         "out/$awq_dir/awq${sparsity}/quant_dump" "fake" 4096 \
+#         "out/perplexities/$awq_dir/awq${sparsity}eval4k.txt"
+# done

@@ -37,47 +37,37 @@ run_quantize () {
         --w_bit $2 \
         --q_group_size 128 \
         --load_awq $3 \
-        --dump_quant $4 \
-        --q_backend $5
-}
-
-test_quantize() {
-    python -m awq.entry \
-        --model_path $1 \
-        --w_bit $2 \
-        --load_quant $3 \
-        --cache_dir "llm_weights" \
-        --q_group_size 128 \
-        --q_backend $4 \
+        --dump_fake $4 \
+        --q_backend $5 \
         --tasks "wikitext" \
-        --eval_seqlen $5 \
-    > $6
+        --eval_seqlen $6 \
+        > $7
 }
 
 wanda_awq() {
+    # ensure directories exist
+    mkdir -p $4
+    mkdir -p $(dirname "$6")
+    mkdir -p $(dirname "$8")
+    mkdir -p $(dirname "${12}")
+
     # llama-7b with wanda pruning method
-    # echo "Running with wanda pruning method"
+    echo "Running with wanda pruning method"
     run_wanda $1 $2 $3 $4 $4 $5 $6
-    # echo "Finished wanda pruning method"
+    echo "Finished wanda pruning method"
     awq_pipeline $4 $7 $8 $9 ${10} ${11} ${12}
 }
 
 awq_pipeline() {
-    # # AWQ
-    # echo "Running AWQ"
-    # run_awq $1 $2 $3
-    # echo "Finished AWQ"
-    # # # AWQ part 2
-    # echo "Running AWQ Quantization"
-    # run_quantize $1 $2 $3 $4 $5
-    # echo "Finished AWQ Quantization"
-    # AWQ part 3
-    echo "Evaluating AWQ Quantization"
-    test_quantize $1 $2 $4 $5 $6 $7
-    echo "Evaluating AWQ Quantization"
+    # AWQ
+    echo "Running AWQ"
+    run_awq $1 $2 $3
+    echo "Finished AWQ"
+    # AWQ part 2
+    echo "Running AWQ Quantization"
+    run_quantize $1 $2 $3 $4 $5 $6 $7
+    echo "Finished AWQ Quantization"
 }
-
-
 
 # # ======= AWQ alone =======
 
@@ -89,6 +79,9 @@ awq_pipeline() {
 # run_wanda "meta-llama/Llama-2-7b-hf" 0 "unstructured" "out/wanda/wanda" "out/wanda/wanda" 2048 "out/perplexities/llamaeval2k"
 
 # # ======= Wanda + AWQ =======
+
+wanda_dir="wanda"
+awq_dir="wanda_awq"
 
 # for sparsity in 0.6 0.7 0.8 0.9; do
 #     wanda_awq "meta-llama/Llama-2-7b-hf" \
@@ -125,3 +118,19 @@ awq_pipeline() {
 #     "out/wanda_awq/awq4_8/awq_results" \
 #     "out/wanda_awq/awq4_8/quant_dump" "real" 4096 \
 #     "out/perplexities/wanda_awq/awq4_8eval4k.txt"
+#
+# # ======= Wanda + AWQ 2:4 sparsity =======
+
+wanda_awq "meta-llama/Llama-2-7b-hf" \
+    0.5 "2:4" "out/$wanda_dir/wanda2_4" 4096 \
+    "out/perplexities/$wanda_dir/wanda2_4eval4k.txt" 4 \
+    "out/$awq_dir/awq2_4/awq_results" \
+    "out/$awq_dir/awq2_4/quant_dump" "fake" 2048 \
+    "out/perplexities/$awq_dir/awq2_4eval2k.txt"
+
+wanda_awq "out/$wanda_dir/wanda2_4" \
+    0 "unstructured" "out/$wanda_dir/wanda2_4" 2048 \
+    "out/perplexities/$wanda_dir/wanda2_4eval2k.txt" 4 \
+    "out/$awq_dir/awq2_4/awq_results" \
+    "out/$awq_dir/awq2_4/quant_dump" "fake" 4096 \
+    "out/perplexities/$awq_dir/awq2_4eval4k.txt"
