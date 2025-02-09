@@ -26,6 +26,7 @@ run_quantize () {
         --load_awq $4 \
         --q_backend $5 \
         --tasks "wikitext" \
+        --check_sparsity \
         --eval_seqlen $6 \
         > $7
 }
