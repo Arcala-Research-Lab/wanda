@@ -4,6 +4,7 @@ import numpy as np
 import random
 import torch
 from datasets import load_dataset
+from tqdm import tqdm
 
 # Set seed for reproducibility
 def set_seed(seed):
@@ -50,7 +51,7 @@ def get_c4(nsamples, seed, seqlen, tokenizer):
     # Generate samples from training set
     random.seed(seed)
     trainloader = []
-    for _ in range(nsamples):
+    for _ in tqdm(range(nsamples)):
         while True:
             i = random.randint(0, len(traindata) - 1)
             trainenc = tokenizer(traindata[i]['text'], return_tensors='pt')

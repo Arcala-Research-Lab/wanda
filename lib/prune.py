@@ -55,7 +55,7 @@ def check_sparsity(model):
     model.config.use_cache = use_cache 
     return float(count)/total_params 
 
-def prepare_calibration_input(model, dataloader, device):
+def prepare_calibration_input(model, args, dataloader, device):
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = model.model.layers
@@ -65,7 +65,7 @@ def prepare_calibration_input(model, dataloader, device):
         device = model.hf_device_map["model.embed_tokens"]
 
     dtype = next(iter(model.parameters())).dtype
-    inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
+    inps = torch.zeros((128, args.eval_seqlen, model.config.hidden_size), dtype=dtype, device=device)
     inps.requires_grad = False
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
 
@@ -161,11 +161,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     print("loading calibdation data")
     # trying wikitext loader
     # dataloader, _ = get_loaders("wikitext2",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
-
-    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=args.eval_seqlen,tokenizer=tokenizer)
     print("dataset loading complete")
     with torch.no_grad():
-        inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
+        inps, outs, attention_mask, position_ids = prepare_calibration_input(model, args, dataloader, device)
 
     layers = model.model.layers
     mask_index = 0
