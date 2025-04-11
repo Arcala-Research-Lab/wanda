@@ -317,9 +317,9 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    raw_datasets = load_dataset(
-        'allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz', 'validation': 'en/c4-validation.00000-of-00008.json.gz'}
-    )
+    raw_datasets = {}
+    raw_datasets['train'] = load_dataset("cais/mmlu", "all", split="auxiliary_train")
+    raw_datasets['validation'] = load_dataset("cais/mmlu", "all", split="validation")
 
     if "validation" not in raw_datasets.keys():
         raw_datasets["validation"] = load_dataset(
