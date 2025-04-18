@@ -12,6 +12,7 @@ from importlib.metadata import version
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
+from lib.prune_optimization import prune_opitimize
 
 try:
     from lib.awq_pre_quant_no_apply import run_awq
@@ -50,7 +51,7 @@ def main():
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "wanda_optimized", "sparsegpt", 
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
@@ -266,6 +267,8 @@ def main():
         print("pruning starts")
         if args.prune_method == "wanda":
             prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "wanda_optimized":
+            prune_opitimize(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "sparsegpt":

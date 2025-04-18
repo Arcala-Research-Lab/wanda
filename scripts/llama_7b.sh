@@ -4,14 +4,14 @@
 # model="decapoda-research/llama-7b-hf"
 model="meta-llama/Llama-2-7b-hf"
 sparsity_ratio=0.5
-cuda_device=0
+cuda_device=1
 
 # Set CUDA device visibility
 export CUDA_VISIBLE_DEVICES=$cuda_device
 
 # Define function to run python command
 run_python_command () {
-    python ../main.py \
+    /home/oyahia/.conda/envs/RLPruner/bin/python wanda/main.py \
     --model $model \
     --prune_method $1 \
     --sparsity_ratio $2 \
@@ -22,21 +22,7 @@ run_python_command () {
 
 # llama-7b with wanda pruning method
 echo "Running with wanda pruning method"
-# run_python_command "wanda" "0.5"  "unstructured" "../out/llama_7b/unstructured/wanda/50/" "../saved_models/llama_7b/unstructured/wanda/50/"
-# run_python_command "wanda" "0.5"  "2:4" "../out/llama_7b/2-4/wanda/50/" "../saved_models/llama_7b/2-4/wanda/50/"
-# run_python_command "wanda" "0.5"  "4:8" "../out/llama_7b/4-8/wanda/50/" "../saved_models/llama_7b/4-8/wanda/50/"
-# run_python_command "wanda" "0.4"  "unstructured" "../out/llama_7b/unstructured/wanda/40/" "../saved_models/llama_7b/unstructured/wanda/40/"
-# run_python_command "wanda" "0.4"  "2:4" "../out/llama_7b/2-4/wanda/40/" "../saved_models/llama_7b/2-4/wanda/40/"
-# run_python_command "wanda" "0.4"  "4:8" "../out/llama_7b/4-8/wanda/40/" "../saved_models/llama_7b/4-8/wanda/40/"
-run_python_command "wanda" "0.3"  "unstructured" "../out/llama_7b/unstructured/wanda/30/" "../saved_models/llama_7b/unstructured/wanda/30/"
-# run_python_command "wanda" "0.3"  "2:4" "../out/llama_7b/2-4/wanda/30/" "../saved_models/llama_7b/2-4/wanda/30/"
-# run_python_command "wanda" "0.3"  "4:8" "../out/llama_7b/4-8/wanda/30/" "../saved_models/llama_7b/4-8/wanda/30/"
-run_python_command "wanda" "0.2"  "unstructured" "../out/llama_7b/unstructured/wanda/20/" "../saved_models/llama_7b/unstructured/wanda/20/"
-# run_python_command "wanda" "0.2"  "2:4" "../out/llama_7b/2-4/wanda/20/" "../saved_models/llama_7b/2-4/wanda/20/"
-# run_python_command "wanda" "0.2"  "4:8" "../out/llama_7b/4-8/wanda/20/" "../saved_models/llama_7b/4-8/wanda/20/"
-run_python_command "wanda" "0.1"  "unstructured" "../out/llama_7b/unstructured/wanda/10/" "../saved_models/llama_7b/unstructured/wanda/10/"
-# run_python_command "wanda" "0.1"  "2:4" "../out/llama_7b/2-4/wanda/10/" "../saved_models/llama_7b/2-4/wanda/10/"
-# run_python_command "wanda" "0.1"  "4:8" "../out/llama_7b/4-8/wanda/10/" "../saved_models/llama_7b/4-8/wanda/10/"
+run_python_command "wanda_optimized" "0.4" "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda0.4" "/srv/disk00/oyahia/out/wanda_test/wanda0.4"
 echo "Finished wanda pruning method"
 
 # # llama-7b with sparsegpt pruning method
