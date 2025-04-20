@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES=0 python finetune_lm.py \
 
 ```
 python merge_lora.py \
-    --model ../out/llama_7b/unstructured/wanda/pruned_models/llama_7b_0_9 \ 
+    --model ../out/llama_7b/unstructured/wanda/pruned_models/llama_7b_0_9 \
     --lora_weights ft_pruned_models/wanda/llama_7b_0_9 \
     --save_path lora_merged_models/wanda/llama_7b_0_9
 ```

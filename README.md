@@ -1,3 +1,22 @@
+# ARCALA: LoRA-Relevant Info
+
+## Conducting LoRA Fine Tuning
+
+See `lora_ft/finetune_lm.py`
+
+## Conducting Perplexity (PPL) Evaluation on Fine-Tuned Model (No AWQ)
+IMPORTANT: make sure the target model has not been merged with lora_weights yet (i.e. you did not run `merge_lora.py` on the target model)
+```
+python ppl_eval.py \
+        --model out/llama_7b/unstructured/wanda/pruned_models/llama_7b_0_9/ 
+        --lora_weights lora_ft/ft_pruned_models/wanda/llama_7b_0_9 >> ppl_logs/ppl_0_9.log
+```
+
+`--model: ` Base Model Architecture (Post Wanda Prune)
+
+`--lora_weights: ` Folder path containing fine-tune weights
+
+
 # Pruning LLMs by Weights and Activations
 Official PyTorch implementation of **Wanda** (Pruning by **W**eights **and a**ctivations), as presented in our paper:
 
