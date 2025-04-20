@@ -1,3 +1,32 @@
+# ARCALA SPECIFIC NOTES
+
+### Running lora finetune on pruned model example used in experiments:
+```
+CUDA_VISIBLE_DEVICES=0 python finetune_lm.py \
+    --model_name_or_path ../out/unstructured/wanda/pruned_models/llama_7b_0_9 \
+    --config_name "meta-llama/Llama-2-7b-hf" \
+    --dataset_name c4 \
+    --num_train_epochs 1 \
+    --block_size 1024 \
+    --per_device_train_batch_size 1 \
+    --do_train \
+    --max_train_samples 30000 \
+    --learning_rate 1e-4 \
+    --overwrite_output_dir \
+    --output_dir ft_pruned_models/wanda/
+```
+
+### Merging LoRA weights to model (for AWQ)
+
+```
+python merge_lora.py \
+    --model ../out/llama_7b/unstructured/wanda/pruned_models/llama_7b_0_9 \ 
+    --lora_weights ft_pruned_models/wanda/llama_7b_0_9 \
+    --save_path lora_merged_models/wanda/llama_7b_0_9
+```
+
+
+# ORIGINAL README BELOW
 ## LoRA Fine-tuning of pruned LLMs
 Here we provide the script for the lora fine-tuning experiments in the paper. The commands for reproducing our experiments are in [script.sh](script.sh).
 

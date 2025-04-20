@@ -19,10 +19,16 @@ Here is the full list of checkpoints on the hub that can be fine-tuned by this s
 https://huggingface.co/models?filter=text-generation
 """
 # You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
+# IMPORTANT: Insert in token for Hugging Face (HF) Below
+# from huggingface_hub import login
+# login(token="")
+import os
+from dotenv import load_dotenv
+load_dotenv("../")
+HF_TOKEN=os.getenv("HF_TOKEN")
 
 import logging
 import math
-import os
 import sys
 from dataclasses import dataclass, field
 from itertools import chain
@@ -58,7 +64,7 @@ from peft import (
     get_peft_model,
     get_peft_model_state_dict,
     prepare_model_for_kbit_training,
-    # prepare_model_for_int8_training,
+    # prepare_model_for_int8_training | ARCALA: doesn't work with this verison of HF for some reason --> kbit_training func above used as substitute
     set_peft_model_state_dict,
 )
 
@@ -369,19 +375,25 @@ def main():
             padding_side="right",
             use_fast=True,
         )
-    else:
+    else: #ARCALA: default tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
                 "meta-llama/Llama-2-7b-hf", 
                 cache_dir=model_args.cache_dir, 
                 padding_side="right",
                 use_fast=True, 
-                token="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"
+                token=HF_TOKEN #Insert token either from you or ask prof
         )
     
-    model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch.float16, cache_dir=model_args.cache_dir, low_cpu_mem_usage=True, device_map="auto", load_in_8bit=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_args.model_name_or_path, 
+        torch_dtype=torch.float16, 
+        cache_dir=model_args.cache_dir, 
+        low_cpu_mem_usage=True, 
+        device_map="auto"
+    )
 
     ############################################################################################
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(model) #ARCALA: changed from int8, see above kbit func
     config = LoraConfig(
         r=model_args.lora_r,
         lora_alpha=model_args.lora_alpha,
@@ -392,10 +404,19 @@ def main():
     )
     model = get_peft_model(model, config)
 
-    print("\nLayer sparsities before fine-tuning - A expected 0; B expected 1 sparsity (initialized weights)\n")
+    #ARCALA: monitor pre fine-tune sparsity
+    #_______________________________________
+    import shutil
+    terminal_w = shutil.get_terminal_size().columns
+    print("_" * terminal_w)
+    print("\nModel Layers + Sparsity before fine tune\n")
+    print("_" * terminal_w)
+
     for name, param in model.named_parameters():
         sparsity = (param == 0).sum().item() / param.numel()  # Calculate sparsity
         print(f"{name} sparsity: {sparsity:.4f}")
+    
+    #_______________________________________
 
     ############################################################################################
 
@@ -540,9 +561,9 @@ def main():
     training_args.fp16 = True
     training_args.logging_steps = 10
     training_args.optim = "adamw_torch"
-    training_args.save_strategy = "epoch"
+    training_args.save_strategy = "steps"
     training_args.eval_steps = 10
-    # training_args.save_steps = 50
+    training_args.save_steps = 50
     training_args.save_total_limit = 15
     training_args.group_by_length = False
     
@@ -588,17 +609,20 @@ def main():
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         # trainer.save_model()  # Saves the tokenizer too for easy upload
 
-        print("\n\n\nLayer sparsities after fine-tuning - A and B expected 0 sparsity\n\n\n")
+        #ARCALA: Show Post Fine-Tune sparsitites - verify A and B matrices do not have sparsity 1
+        #_______________________________________
+        print("_" * terminal_w)
+        print("\nLayer sparsities after fine-tuning - A and B expected 0 sparsity\n")
+        print("_" * terminal_w)
         for name, param in model.named_parameters():
             sparsity = (param == 0).sum().item() / param.numel()  # Calculate sparsity
             print(f"{name} sparsity: {sparsity:.4f}")
         
-
-        #############################################################
+        print("_" * terminal_w)
+        print(f"\nSAVING MODEL TO: {training_args.output_dir}/adapter_model.bin")
         model.save_pretrained(training_args.output_dir)
-        print(training_args.output_dir)
-        torch.save(trainer.model.state_dict(), f"{training_args.output_dir}/adapter_model.bin") 
-        print(f"{training_args.output_dir}/adapter_model.bin")
+        torch.save(trainer.model.state_dict(), f"{training_args.output_dir}/adapter_model.bin")
+        #_______________________________________
         #############################################################
 
         metrics = train_result.metrics
