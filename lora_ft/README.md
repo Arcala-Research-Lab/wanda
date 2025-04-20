@@ -24,7 +24,10 @@ python merge_lora.py \
     --lora_weights ft_pruned_models/wanda/llama_7b_0_9 \
     --save_path lora_merged_models/wanda/llama_7b_0_9
 ```
-
+IMPORTANT for merging: You also need to manually copy the following tokenizer-relevant files located in the `--model` path into `--save_path` path:
+ - `special_tokens_map.json`
+ - `tokenizer_config.json`
+ - `tokenizer.model`
 
 # ORIGINAL README BELOW
 ## LoRA Fine-tuning of pruned LLMs
