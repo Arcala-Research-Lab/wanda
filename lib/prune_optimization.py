@@ -3,7 +3,7 @@ from .layerwrapper import WrappedGPT
 from .data import get_loaders 
 from .prune import prepare_calibration_input, find_layers
 import torch
-from scipy.optimize import minimize
+from skopt import gp_minimize
 from copy import deepcopy
 
 def set_submodule(module, path, new_module):
@@ -28,7 +28,7 @@ def prune_opitimize(args, model, tokenizer, device=torch.device("cuda:0"), prune
 
     layers = model.model.layers
 
-    for i in range(len(layers)):
+    for i in reversed(range(len(layers))):
         layer = layers[i]
         subset = find_layers(layer)
 
@@ -49,14 +49,17 @@ def prune_opitimize(args, model, tokenizer, device=torch.device("cuda:0"), prune
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
         for h in handles:
             h.remove()
-
-        for name in subset:
+        block_inputs = [inps] + [[None for _ in range(args.nsamples)] for name in subset]
+        for k, name in enumerate(subset):
+            for j in range(args.nsamples):
+                block_inputs[k+1][j] = subset[name](block_inputs[k][j].unsqueeze(0))[0]
+        for k, name in reversed(list(enumerate(subset))):
             print(f"pruning layer {i} name {name}")
+            old_weight = deepcopy(subset[name].weight.data)
             def optimize_raw(x, reset: bool = False) -> float:
                 weights = torch.abs(subset[name].weight.data)
                 wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
                 W_metric = torch.pow(weights, x[0])  * torch.pow(wanda_scale, x[1])
-
                 W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
                 if prune_n != 0:
                     # structured n:m sparsity
@@ -70,23 +73,21 @@ def prune_opitimize(args, model, tokenizer, device=torch.device("cuda:0"), prune
                     # unstructured pruning
                     indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
                     W_mask.scatter_(1, indices, True)
-                old_weight = deepcopy(subset[name].weight.data)
-                old_outs = [None for _ in range(len(outs))]
-                for j in range(args.nsamples):
-                    with torch.no_grad():
-                        old_outs[j] = subset[name](inps[j].unsqueeze(0))[0]
                 subset[name].weight.data[W_mask] = 0  ## set weights to zero 
                 new_outs = [None for _ in range(len(outs))]
                 for j in range(args.nsamples):
                     with torch.no_grad():
-                        new_outs[j] = subset[name](inps[j].unsqueeze(0))[0]
+                        new_outs[j] = subset[name](block_inputs[k][j].unsqueeze(0))[0]
                 if reset:
                     subset[name].weight.data = old_weight
-
                 mean_val = 0
+                n_residuals = 0
                 for j in range(args.nsamples):
-                    mean_val += torch.mean(torch.pow(new_outs[j] - old_outs[j], 2))/args.nsamples
-                print(f"{x}, {mean_val}", end=", ")
+                    residuals = torch.abs(new_outs[j] - block_inputs[k+1][j])
+                    mean_val += torch.mean(residuals[residuals != 0])
+                    n_residuals += torch.sum(residuals != 0)
+                print(n_residuals.item(), end="; ")
+                print(f"({x[0]:.2f}, {x[1]:.2f}), {mean_val: .2f}", end=", ")
                 return mean_val.item()
             def optimize(x) -> float:
                 return optimize_raw(x, reset=True)
@@ -95,11 +96,11 @@ def prune_opitimize(args, model, tokenizer, device=torch.device("cuda:0"), prune
                 def __init__(self) -> None:
                     self.count = 0
                 def print_count(self, xk):
-                    print(' iteration', self.count)
+                    print('iteration', self.count)
                     self.count += 1
             counter = Counter()
-            result = minimize(optimize, x0, method='Powell', bounds=[(0.01, 10), (0.01, 10)], options={'maxiter': 10}, callback=counter.print_count)['x']
-            print('final x:', x0)
+            result = gp_minimize(optimize, dimensions=[(0.1, 2), (0.1, 2)], n_calls=20, callback=counter.print_count)['x']
+            print('final x:', result)
             optimize_raw(result)
 
 

@@ -17,12 +17,15 @@ run_python_command () {
     --sparsity_ratio $2 \
     --sparsity_type $3 \
     --save $4 \
-    --save_model $5
+    --save_model $5 \
+    --eval_seqlen 4096 \
+    --nsamples 32
 }
 
 # llama-7b with wanda pruning method
 echo "Running with wanda pruning method"
-run_python_command "wanda_optimized" "0.4" "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda0.4" "/srv/disk00/oyahia/out/wanda_test/wanda0.4"
+# > "/srv/disk00/oyahia/out/wanda_test/wanda0.6ppl"
+run_python_command "wanda_optimized" "0.6" "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda0.6" "/srv/disk00/oyahia/out/wanda_test/wanda0.6" > "/srv/disk00/oyahia/out/wanda_test/wanda0.6ppl"
 echo "Finished wanda pruning method"
 
 # # llama-7b with sparsegpt pruning method
