@@ -12,7 +12,7 @@ from importlib.metadata import version
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
-from lib.prune_optimization import prune_opitimize
+from lib.find_salients import find_salients
 
 try:
     from lib.awq_pre_quant_no_apply import run_awq
@@ -50,8 +50,10 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
+    parser.add_argument('--sparsity_ratio_weights', type=float, default=0, help='Sparsity level')
+    parser.add_argument('--sparsity_ratio_activations', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "wanda_optimized", "sparsegpt", 
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "salient_capture", "sparsegpt", 
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
@@ -95,7 +97,7 @@ def main():
     # Handling n:m sparsity
     prune_n, prune_m = 0, 0
     if args.sparsity_type != "unstructured":
-        assert args.sparsity_ratio == 0.5, "sparsity ratio must be 0.5 for structured N:M sparsity"
+        assert args.sparsity_ratio_activations == 0.5, "sparsity ratio must be 0.5 for structured N:M sparsity"
         prune_n, prune_m = map(int, args.sparsity_type.split(":"))
 
     """pasted from llm-awq entry.py"""
@@ -165,7 +167,7 @@ def main():
 
     if args.calculate_masks:
         for sparsity in args.sparsity_ratios:
-            args.sparsity_ratio = sparsity
+            args.sparsity_ratio_activations = sparsity
             W_mag_list = prune_mag_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
             W_wanda_list = prune_wanda_mask(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
             torch.save(W_mag_list, os.path.join(args.save_masks, f'mag_{sparsity}'))
@@ -263,12 +265,12 @@ def main():
         exit()
         pass
 
-    if args.sparsity_ratio != 0:
+    if args.sparsity_ratio_activations != 0:
         print("pruning starts")
         if args.prune_method == "wanda":
             prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
-        elif args.prune_method == "wanda_optimized":
-            prune_opitimize(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "salient_capture":
+            find_salients(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "sparsegpt":
@@ -279,8 +281,8 @@ def main():
 
     ################################################################
     print("*"*30)
-    sparsity_ratio = check_sparsity(model)
-    print(f"sparsity sanity check {sparsity_ratio:.4f}")
+    sparsity_ratio_activations = check_sparsity(model)
+    print(f"sparsity sanity check {sparsity_ratio_activations:.4f}")
     print("*"*30)
     ################################################################
     model.seqlen = args.eval_seqlen if args.eval_seqlen else model.seqlen # for evaluating perplexity with specific seqlen
@@ -292,7 +294,7 @@ def main():
     save_filepath = os.path.join(args.save, f"log_{args.prune_method}.txt")
     with open(save_filepath, "w") as f:
         print("method\tactual_sparsity\tppl_test", file=f, flush=True)
-        print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{ppl_test:.4f}", file=f, flush=True)
+        print(f"{args.prune_method}\t{sparsity_ratio_activations:.4f}\t{ppl_test:.4f}", file=f, flush=True)
 
     if args.eval_zero_shot:
         accelerate=False

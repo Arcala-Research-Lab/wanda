@@ -14,10 +14,11 @@ run_python_command () {
     /home/oyahia/.conda/envs/RLPruner/bin/python wanda/main.py \
     --model $model \
     --prune_method $1 \
-    --sparsity_ratio $2 \
-    --sparsity_type $3 \
-    --save $4 \
-    --save_model $5 \
+    --sparsity_ratio_weights $2 \
+    --sparsity_ratio_activations $3 \
+    --sparsity_type $4 \
+    --save $5 \
+    --save_model $6 \
     --eval_seqlen 4096 \
     --nsamples 32
 }
@@ -25,7 +26,7 @@ run_python_command () {
 # llama-7b with wanda pruning method
 echo "Running with wanda pruning method"
 # > "/srv/disk00/oyahia/out/wanda_test/wanda0.6ppl"
-run_python_command "wanda_optimized" "0.6" "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda0.6" "/srv/disk00/oyahia/out/wanda_test/wanda0.6" > "/srv/disk00/oyahia/out/wanda_test/wanda0.6ppl"
+run_python_command "salient_capture" "0.1" "0.9" "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda0.6" "/srv/disk00/oyahia/out/wanda_test/wanda0.6"
 echo "Finished wanda pruning method"
 
 # # llama-7b with sparsegpt pruning method

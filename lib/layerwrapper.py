@@ -14,6 +14,7 @@ class WrappedGPT:
         self.columns = layer.weight.data.shape[1]
 
         self.scaler_row = torch.zeros((self.columns), device=self.dev)
+        self.activations = torch.zeros((self.rows, self.columns), device=self.dev)
         self.nsamples = 0
 
         self.layer_id = layer_id 
@@ -27,6 +28,8 @@ class WrappedGPT:
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
+
+        self.raw_input = inp
 
         self.scaler_row *= self.nsamples / (self.nsamples+tmp)
         self.nsamples += tmp
