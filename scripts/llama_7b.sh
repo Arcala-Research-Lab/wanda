@@ -1,54 +1,66 @@
 #!/bin/bash
+# script for running wanda + awq
 
 # Set common variables
-# model="decapoda-research/llama-7b-hf"
-model="meta-llama/Llama-2-7b-hf"
-sparsity_ratio=0.5
-cuda_device=0
+cuda_device=1
 
 # Set CUDA device visibility
 export CUDA_VISIBLE_DEVICES=$cuda_device
 
 # Define function to run python command
-run_python_command () {
-    python ../main.py \
-    --model $model \
-    --prune_method $1 \
+run_wanda () {
+    python arcala-prunequant/main.py \
+    --model $1 \
+    --prune_method "wanda" \
     --sparsity_ratio $2 \
     --sparsity_type $3 \
     --save $4 \
-    --save_model $5
+    --save_model $5 \
+    --eval_seqlen $6 \
+    > $7
 }
 
-# llama-7b with wanda pruning method
-echo "Running with wanda pruning method"
-# run_python_command "wanda" "0.5"  "unstructured" "../out/llama_7b/unstructured/wanda/50/" "../saved_models/llama_7b/unstructured/wanda/50/"
-# run_python_command "wanda" "0.5"  "2:4" "../out/llama_7b/2-4/wanda/50/" "../saved_models/llama_7b/2-4/wanda/50/"
-# run_python_command "wanda" "0.5"  "4:8" "../out/llama_7b/4-8/wanda/50/" "../saved_models/llama_7b/4-8/wanda/50/"
-# run_python_command "wanda" "0.4"  "unstructured" "../out/llama_7b/unstructured/wanda/40/" "../saved_models/llama_7b/unstructured/wanda/40/"
-# run_python_command "wanda" "0.4"  "2:4" "../out/llama_7b/2-4/wanda/40/" "../saved_models/llama_7b/2-4/wanda/40/"
-# run_python_command "wanda" "0.4"  "4:8" "../out/llama_7b/4-8/wanda/40/" "../saved_models/llama_7b/4-8/wanda/40/"
-run_python_command "wanda" "0.3"  "unstructured" "../out/llama_7b/unstructured/wanda/30/" "../saved_models/llama_7b/unstructured/wanda/30/"
-# run_python_command "wanda" "0.3"  "2:4" "../out/llama_7b/2-4/wanda/30/" "../saved_models/llama_7b/2-4/wanda/30/"
-# run_python_command "wanda" "0.3"  "4:8" "../out/llama_7b/4-8/wanda/30/" "../saved_models/llama_7b/4-8/wanda/30/"
-run_python_command "wanda" "0.2"  "unstructured" "../out/llama_7b/unstructured/wanda/20/" "../saved_models/llama_7b/unstructured/wanda/20/"
-# run_python_command "wanda" "0.2"  "2:4" "../out/llama_7b/2-4/wanda/20/" "../saved_models/llama_7b/2-4/wanda/20/"
-# run_python_command "wanda" "0.2"  "4:8" "../out/llama_7b/4-8/wanda/20/" "../saved_models/llama_7b/4-8/wanda/20/"
-run_python_command "wanda" "0.1"  "unstructured" "../out/llama_7b/unstructured/wanda/10/" "../saved_models/llama_7b/unstructured/wanda/10/"
-# run_python_command "wanda" "0.1"  "2:4" "../out/llama_7b/2-4/wanda/10/" "../saved_models/llama_7b/2-4/wanda/10/"
-# run_python_command "wanda" "0.1"  "4:8" "../out/llama_7b/4-8/wanda/10/" "../saved_models/llama_7b/4-8/wanda/10/"
-echo "Finished wanda pruning method"
+run_wanda_new () {
+    python arcala-prunequant/main.py \
+    --model $1 \
+    --prune_method "wanda" \
+    --sparsity_ratio $2 \
+    --sparsity_type $3 \
+    --save $4 \
+    --save_model $5 \
+    --eval_seqlen $6 \
+    --layerwise_scaling \
+    > $7
+}
 
-# # llama-7b with sparsegpt pruning method
-# echo "Running with sparsegpt pruning method"
-# run_python_command "sparsegpt" "unstructured" "out/llama_7b/unstructured/sparsegpt/"
-# run_python_command "sparsegpt" "2:4" "out/llama_7b/2-4/sparsegpt/"
-# run_python_command "sparsegpt" "4:8" "out/llama_7b/4-8/sparsegpt/"
-# echo "Finished sparsegpt pruning method"
+wanda_wrapper() {
+    # ensure directories exist
+    mkdir -p $4
+    mkdir -p $(dirname "$6")
 
-# # llama-7b with magnitude pruning method
-# echo "Running with magnitude pruning method"
-# run_python_command "magnitude" "unstructured" "out/llama_7b/unstructured/magnitude/"
-# run_python_command "magnitude" "2:4" "out/llama_7b/2-4/magnitude/"
-# run_python_command "magnitude" "4:8" "out/llama_7b/4-8/magnitude/"
-# echo "Finished magnitude pruning method"
+    # llama-7b with wanda pruning method
+    echo "Running with wanda pruning method"
+    run_wanda $1 $2 $3 $4 $4 $5 $6
+    echo "Finished wanda pruning method"
+}
+
+wanda_new_wrapper() {
+    # ensure directories exist
+    mkdir -p $4
+    mkdir -p $(dirname "$6")
+
+    # llama-7b with wanda pruning method
+    echo "Running with wanda pruning method"
+    run_wanda_new $1 $2 $3 $4 $4 $5 $6
+    echo "Finished wanda pruning method"
+}
+
+# # ======= Wanda + AWQ =======
+
+wanda_dir="wanda"
+
+for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    wanda_wrapper "meta-llama/Llama-2-7b-hf" \
+        $sparsity "unstructured" "out/wanda/wanda$sparsity" 4096 \
+        "out/perplexities/wanda/wanda${sparsity}eval4k.txt"
+done
