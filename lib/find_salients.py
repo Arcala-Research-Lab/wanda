@@ -93,6 +93,21 @@ def find_salients(args, model, tokenizer, device=torch.device("cuda:0"), prune_n
                 subset[name].weight.data[~W_mask_w] = 0
             elif args.prune_method == "bad_wanda":
                 subset[name].weight.data[~W_mask_a] = 0
+            elif args.prune_method == "salient_random":
+                readjusted_mask = W_mask_w.clone()
+                one_indices = torch.nonzero(readjusted_mask, as_tuple=True)
+                zero_indices = torch.nonzero(~readjusted_mask, as_tuple=True)
+                num_ones = one_indices[0].numel()
+                num_zeros = zero_indices[0].numel()
+                num_ones_to_move = int(num_ones * 0.1)
+                num_ones_to_move = min(num_ones_to_move, num_ones, num_zeros)
+                perm_ones = torch.randperm(num_ones)
+                indices_to_flip_to_false_in_original_ones = tuple(idx[perm_ones[:num_ones_to_move]] for idx in one_indices)
+                perm_zeros = torch.randperm(num_zeros)
+                indices_to_flip_to_true_in_original_zeros = tuple(idx[perm_zeros[:num_ones_to_move]] for idx in zero_indices)
+                readjusted_mask[indices_to_flip_to_false_in_original_ones] = 0
+                readjusted_mask[indices_to_flip_to_true_in_original_zeros] = 1
+                subset[name].weight.data[readjusted_mask] = 0
             elif args.prune_method == "fix_mag":
                 W_mask_w_0_52 = get_wmask(W_metric_w, 0.52)
                 W_mask_a_0_52 = get_wmask(W_metric_a, 0.48)

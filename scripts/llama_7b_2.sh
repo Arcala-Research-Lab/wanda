@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=arcala_prune
+#SBATCH --job-name=arcala_prune_2
 #SBATCH --account=TOMYEH_LAB_GPU
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:A30:2
@@ -18,7 +18,7 @@ source /opt/apps/miniconda3/24.9.2/bin/activate prune_llm
 
 
 # Set common variables
-cuda_device=0,1
+cuda_device=0,1,2
 
 # Set CUDA device visibility
 export CUDA_VISIBLE_DEVICES=$cuda_device
@@ -27,9 +27,9 @@ export CUDA_VISIBLE_DEVICES=$cuda_device
 run_wanda () {
     python arcala-prunequant/main.py \
     --model $1 \
-    --prune_method "salient" \
-    --sparsity_ratio_weights 0.6 \
-    --sparsity_ratio_activations $2 \
+    --prune_method "salient_random" \
+    --sparsity_ratio_weights $2 \
+    --sparsity_ratio_activations 0.2 \
     --sparsity_type $3 \
     --save $4 \
     --save_model $5 \
@@ -76,10 +76,10 @@ wanda_new_wrapper() {
 
 wanda_dir="wanda"
 
-for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+for i in 0 1 2 3 4 5 6 7 8 9; do
     wanda_wrapper "meta-llama/Llama-2-7b-hf" \
-        $sparsity "unstructured" "out/wanda_mask_runs0.6/wanda$sparsity" 4096 \
-        "out/perplexities/wanda_mask_runs0.6/wanda${sparsity}eval4k.txt"
+        0.5 "unstructured" "out/wanda_random_add_runs/wanda0.5" 4096 \
+        "out/perplexities/wanda_random_add_runs/wanda0.5eval4k_$i.txt"
 done
 
 # c4:

@@ -53,7 +53,7 @@ def main():
     parser.add_argument('--sparsity_ratio_weights', type=float, default=0, help='Sparsity level')
     parser.add_argument('--sparsity_ratio_activations', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "salient", "sparsegpt", "bad_magnitude", "bad_wanda", "fix_mag",
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "salient", "salient_random", "sparsegpt", "bad_magnitude", "bad_wanda", "fix_mag",
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
