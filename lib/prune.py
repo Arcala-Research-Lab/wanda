@@ -238,45 +238,59 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             else:
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
-                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))               
+                W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))           
 
-            W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
-            if prune_n != 0:
-                # structured n:m sparsity
-                for ii in range(W_metric.shape[1]):
-                    if ii % prune_m == 0:
-                        tmp = W_metric[:,ii:(ii+prune_m)].float()
-                        W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
-            else:
-                sort_res = torch.sort(W_metric, dim=-1, stable=True)
-
-                if args.use_variant:
-                    # wanda variant 
-                    tmp_metric = torch.cumsum(sort_res[0], dim=1)
-                    sum_before = W_metric.sum(dim=1)
-
-                    alpha = 0.4
-                    alpha_hist = [0., 0.8]
-                    W_mask, cur_sparsity = return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before)
-                    while (torch.abs(cur_sparsity - args.sparsity_ratio)>0.001) and (alpha_hist[1]-alpha_hist[0]>=0.001):
-                        if cur_sparsity > args.sparsity_ratio:
-                            alpha_new = (alpha + alpha_hist[0]) / 2.0
-                            alpha_hist[1] = alpha
-                        else:
-                            alpha_new = (alpha + alpha_hist[1]) / 2.0
-                            alpha_hist[0] = alpha
-
-                        alpha = alpha_new 
-                        W_mask, cur_sparsity = return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before)
-                    print(f"alpha found {alpha} sparsity {cur_sparsity:.6f}")
+            def get_Wmask(metric):
+                W_mask = (torch.zeros_like(metric) == 1)  ## initialize a mask to be all False
+                if prune_n != 0:
+                    # structured n:m sparsity
+                    for ii in range(metric.shape[1]):
+                        if ii % prune_m == 0:
+                            tmp = metric[:,ii:(ii+prune_m)].float()
+                            W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
                 else:
-                    # unstructured pruning
-                    indices = sort_res[1][:,:int(W_metric.shape[1]*args.sparsity_ratio)]
-                    W_mask.scatter_(1, indices, True)
+                    sort_res = torch.sort(metric, dim=-1, stable=True)
 
-            if args.awq_mask:
-                W_mask = torch.logical_and(W_mask, torch.logical_not(awq_mask[mask_index]).reshape(W_mask.shape[0], W_mask.shape[1]).to(W_mask.device))
-                mask_index += 1
+                    if args.use_variant:
+                        # wanda variant 
+                        tmp_metric = torch.cumsum(sort_res[0], dim=1)
+                        sum_before = metric.sum(dim=1)
+
+                        alpha = 0.4
+                        alpha_hist = [0., 0.8]
+                        W_mask, cur_sparsity = return_given_alpha(alpha, sort_res, metric, tmp_metric, sum_before)
+                        while (torch.abs(cur_sparsity - args.sparsity_ratio)>0.001) and (alpha_hist[1]-alpha_hist[0]>=0.001):
+                            if cur_sparsity > args.sparsity_ratio:
+                                alpha_new = (alpha + alpha_hist[0]) / 2.0
+                                alpha_hist[1] = alpha
+                            else:
+                                alpha_new = (alpha + alpha_hist[1]) / 2.0
+                                alpha_hist[0] = alpha
+
+                            alpha = alpha_new 
+                            W_mask, cur_sparsity = return_given_alpha(alpha, sort_res, metric, tmp_metric, sum_before)
+                        print(f"alpha found {alpha} sparsity {cur_sparsity:.6f}")
+                    else:
+                        # unstructured pruning
+                        indices = sort_res[1][:,:int(metric.shape[1]*args.sparsity_ratio)]
+                        W_mask.scatter_(1, indices, True)
+
+                if args.awq_mask:
+                    W_mask = torch.logical_and(W_mask, torch.logical_not(awq_mask[mask_index]).reshape(W_mask.shape[0], W_mask.shape[1]).to(W_mask.device))
+                    mask_index += 1
+                return W_mask
+            
+            W_mask = get_Wmask(W_metric)
+            # if i == len(layers) - 1:
+            # W_metric_2 = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1))) 
+            # W_mask_2 = get_Wmask(W_metric_2)
+            # W_mask = W_mask & W_mask_2
+            num_random_0 = int(0.0083*W_mask.numel())
+            indices = torch.arange(len(W_mask), device=W_mask.device)[torch.flatten(W_mask) == 1]
+            perm = torch.randperm(len(indices), device=W_mask.device)
+            num_to_keep = len(indices) - num_random_0
+            indices_to_keep = perm[:num_to_keep]
+            W_mask[indices[indices_to_keep]] = 0
 
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
 

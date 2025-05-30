@@ -72,17 +72,17 @@ awq_pipeline() {
 
 # ======= Wanda (+ 30% kept) + AWQ =======
 
-# wanda_dir="wanda_wmetric_awq"
-# awq_dir="wanda_awq_wmetric_awq"
+wanda_dir="wanda_test"
+awq_dir="wanda_awq_test"
 
-# for sparsity in 0.3; do
-#     wanda_awq "meta-llama/Llama-2-7b-hf" \
-#         $sparsity "unstructured" "out/$wanda_dir/wanda$sparsity" 4096 \
-#         "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
-#         "out/$awq_dir/awq${sparsity}/awq_results" \
-#         "out/$awq_dir/awq${sparsity}/quant_dump" "real" 2048 \
-#         "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
-# done
+for sparsity in 0.3; do
+    wanda_awq "meta-llama/Llama-2-7b-hf" \
+        0.25 "1:4" "out/$wanda_dir/wanda$sparsity" 4096 \
+        "out/perplexities/$wanda_dir/wanda${sparsity}eval4k.txt" 4 \
+        "out/$awq_dir/awq${sparsity}/awq_results" \
+        "out/$awq_dir/awq${sparsity}/quant_dump" "real" 2048 \
+        "out/perplexities/$awq_dir/awq${sparsity}eval2k.txt"
+done
 
 # # ======= Wanda (+ 30% kept) + AWQ eval (2k, 4k) =======
 
@@ -165,17 +165,17 @@ awq_dir="wanda_awq_wmetric_layered"
 
 wanda_awq "meta-llama/Llama-2-7b-hf" \
     0.5 "2:4" "out/$wanda_dir/wanda2_4" 4096 \
-    "out/perplexities/$wanda_dir/wanda2_4eval4k.txt" 4 \
+    "out/perplexities/$wanda_dir/wanda2_4evalk.txt" 4 \
     "out/$awq_dir/awq2_4/awq_results" \
     "out/$awq_dir/awq2_4/quant_dump" "fake" 2048 \
-    "out/perplexities/$awq_dir/awq2_4eval2k.txt"
+    "out/perplexities/$awq_dir/awq2_4evalk.txt"
 
-wanda_awq "out/$wanda_dir/wanda2_4" \
-    0 "unstructured" "out/$wanda_dir/wanda2_4" 2048 \
-    "out/perplexities/$wanda_dir/wanda2_4eval2k.txt" 4 \
-    "out/$awq_dir/awq2_4/awq_results" \
-    "out/$awq_dir/awq2_4/quant_dump" "fake" 4096 \
-    "out/perplexities/$awq_dir/awq2_4eval4k.txt"
+# wanda_awq "out/$wanda_dir/wanda2_4" \
+#     0 "unstructured" "out/$wanda_dir/wanda2_4" 2048 \
+#     "out/perplexities/$wanda_dir/wanda2_4eval2k.txt" 4 \
+#     "out/$awq_dir/awq2_4/awq_results" \
+#     "out/$awq_dir/awq2_4/quant_dump" "fake" 4096 \
+#     "out/perplexities/$awq_dir/awq2_4eval4k.txt"
 
 # ======= Wanda (Normalized Wanda + AWQ) + AWQ Structured =======
 
