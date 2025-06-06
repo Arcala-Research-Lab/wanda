@@ -76,6 +76,13 @@ def find_salients(args, model, tokenizer, device=torch.device("cuda:0"), prune_n
                     indices = sort_res[1][:,:int(W_metric.shape[1]*sparsity_ratio)]
                     W_mask.scatter_(1, indices, True)
                 return W_mask
+            
+            def get_quantile(weight, value):
+                flattened_weight = weight.flatten()
+                sorted_weight = torch.sort(flattened_weight).values
+                rank_le = torch.searchsorted(sorted_weight, torch.tensor(value, dtype=weight.dtype), right=True)
+                percentile = (rank_le.item() / weight.numel()) * 100
+                return percentile
 
             W_mask_a = get_wmask(W_metric_a, salient_sparsity)
             min_weights = min(w_sparsity, 1-salient_sparsity)
@@ -84,6 +91,7 @@ def find_salients(args, model, tokenizer, device=torch.device("cuda:0"), prune_n
             W_mask_salient = W_mask_w & ~W_mask_a
 
             if args.prune_method == "salient":
+                print(f'Percentile layer {i} {name}: {get_quantile(W_metric_w, torch.median(subset[name].weight.data[W_mask_salient]))}')
                 subset[name].weight.data[W_mask_salient] = 0
             elif args.prune_method == "magnitude":
                 subset[name].weight.data[W_mask_w] = 0

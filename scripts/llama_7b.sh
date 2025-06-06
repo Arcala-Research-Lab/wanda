@@ -9,10 +9,10 @@
 #SBATCH --error=my_gpu_job_%j.err
 
 # Load any necessary modules (e.g., CUDA, libraries)
-module load cuda/11.7.1
+# module load cuda/11.7.1
 
 # Activate your Conda environment
-source /opt/apps/miniconda3/24.9.2/bin/activate prune_llm
+# source /opt/apps/miniconda3/24.9.2/bin/activate prune_llm
 
 # script for running wanda + awq
 
@@ -25,7 +25,7 @@ export CUDA_VISIBLE_DEVICES=$cuda_device
 
 # Define function to run python command
 run_wanda () {
-    python arcala-prunequant/main.py \
+    python wanda/main.py \
     --model $1 \
     --prune_method "salient" \
     --sparsity_ratio_weights 0.6 \
@@ -38,7 +38,7 @@ run_wanda () {
 }
 
 run_wanda_new () {
-    python arcala-prunequant/main.py \
+    python wanda/main.py \
     --model $1 \
     --prune_method "salient" \
     --sparsity_ratio_weights 0.2 \
@@ -76,10 +76,10 @@ wanda_new_wrapper() {
 
 wanda_dir="wanda"
 
-for sparsity in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+for sparsity in 0.6; do
     wanda_wrapper "meta-llama/Llama-2-7b-hf" \
-        $sparsity "unstructured" "out/wanda_mask_runs0.6/wanda$sparsity" 4096 \
-        "out/perplexities/wanda_mask_runs0.6/wanda${sparsity}eval4k.txt"
+        $sparsity "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda$sparsity" 4096 \
+        "/srv/disk00/oyahia/out/perplexities/wanda${sparsity}eval4k.txt"
 done
 
 # c4:
