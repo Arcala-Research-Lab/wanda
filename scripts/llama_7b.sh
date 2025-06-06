@@ -28,13 +28,13 @@ run_wanda () {
     python wanda/main.py \
     --model $1 \
     --prune_method "salient" \
-    --sparsity_ratio_weights 0.6 \
+    --sparsity_ratio_weights 0.55 \
     --sparsity_ratio_activations $2 \
     --sparsity_type $3 \
     --save $4 \
     --save_model $5 \
     --eval_seqlen $6 \
-    > $7
+    | tee $7
 }
 
 run_wanda_new () {
@@ -76,10 +76,10 @@ wanda_new_wrapper() {
 
 wanda_dir="wanda"
 
-for sparsity in 0.6; do
+for sparsity in 0.45; do
     wanda_wrapper "meta-llama/Llama-2-7b-hf" \
-        $sparsity "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda$sparsity" 4096 \
-        "/srv/disk00/oyahia/out/perplexities/wanda${sparsity}eval4k.txt"
+        $sparsity "unstructured" "/srv/disk00/oyahia/out/wanda_test/wanda" 4096 \
+        "out/salient_out2/wanda${sparsity}eval4k.txt"
 done
 
 # c4:

@@ -85,13 +85,14 @@ def find_salients(args, model, tokenizer, device=torch.device("cuda:0"), prune_n
                 return percentile
 
             W_mask_a = get_wmask(W_metric_a, salient_sparsity)
-            min_weights = min(w_sparsity, 1-salient_sparsity)
-
             W_mask_w = get_wmask(W_metric_w, w_sparsity)
             W_mask_salient = W_mask_w & ~W_mask_a
 
             if args.prune_method == "salient":
-                print(f'Percentile layer {i} {name}: {get_quantile(W_metric_w, torch.median(subset[name].weight.data[W_mask_salient]))}')
+                # print(f'Percentile layer {i} {name}: {get_quantile(W_metric_w, torch.median(subset[name].weight.data[W_mask_salient]))}')
+                print(f'Weight sparsity layer {i} {name}: {torch.sum(W_mask_w).item() / W_mask_w.numel()}')
+                print(f'Activation sparsity layer {i} {name}: {torch.sum(~W_mask_a).item() / W_mask_a.numel()}')
+                print(f'Salient sparsity layer {i} {name}: {torch.sum(W_mask_salient).item() / W_mask_salient.numel()}')
                 subset[name].weight.data[W_mask_salient] = 0
             elif args.prune_method == "magnitude":
                 subset[name].weight.data[W_mask_w] = 0
