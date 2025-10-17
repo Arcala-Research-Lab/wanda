@@ -224,17 +224,28 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 scales_index += 1
             elif args.layerwise_scaling:
                 weights = torch.abs(subset[name].weight.data)
+                # alpha_weight = 1.0
+                # beta_weight = weights.mean()
+                # print(beta_weight)
+                # weight_gate = torch.sigmoid(alpha_weight * (weights - beta_weight))
+
                 wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
-                if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
-                    W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
-                elif name == 'self_attn.v_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
-                elif name == 'self_attn.o_proj':
-                    W_metric = torch.pow(weights, 1.25)  * torch.pow(wanda_scale, 1)
-                elif name == 'mlp.down_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
-                else:
-                    W_metric = weights * wanda_scale
+                alpha_scale = 0.5
+                beta_scale = wanda_scale.mean() 
+                activation_gate = torch.sigmoid(alpha_scale * (wanda_scale - beta_scale))
+                # pnorm
+                
+                W_metric = weights * activation_gate
+                # if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
+                #     W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
+                # elif name == 'self_attn.v_proj':
+                #     W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                # elif name == 'self_attn.o_proj':
+                #     W_metric = torch.pow(weights, 1.25)  * torch.pow(wanda_scale, 1)
+                # elif name == 'mlp.down_proj':
+                #     W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                # else:
+                #     W_metric = weights * wanda_scale
             else:
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
