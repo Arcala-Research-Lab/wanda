@@ -124,9 +124,15 @@ def eval_llm(model, tokenizer, task_list=["boolq","piqa","hellaswag","winogrande
     return results 
 
 def main(args):
+    load_kwargs = {
+        "cache_dir": args.cache_dir,
+        "low_cpu_mem_usage": True,
+        "device_map": "auto",
+    }
     model = AutoModelForCausalLM.from_pretrained(
                 args.model,
-                torch_dtype=torch.float16, cache_dir=args.cache_dir, low_cpu_mem_usage=True, device_map="auto")
+                dtype=torch.float16,
+                **load_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(
         "lmsys/vicuna-13b-delta-v0",
         cache_dir=args.cache_dir,
@@ -134,7 +140,7 @@ def main(args):
         use_fast=True,
     )
 
-    model = PeftModel.from_pretrained(model,args.lora_weights,torch_dtype=torch.float16)
+    model = PeftModel.from_pretrained(model, args.lora_weights, dtype=torch.float16)
 
     model.eval()
 
