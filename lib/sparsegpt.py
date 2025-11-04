@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import transformers
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+torch.backends.cuda.matmul.fp32_precision = "ieee"
+torch.backends.cudnn.conv.fp32_precision = "ieee"
 
 ## SparseGPT: https://github.com/IST-DASLab/sparsegpt/tree/f5c25005a61f96a0933ca2f95705a963585aafaa
 class SparseGPT:

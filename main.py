@@ -32,15 +32,19 @@ print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
 def get_llm(model_name, cache_dir="llm_weights"):
+    load_kwargs = {
+        "cache_dir": cache_dir,
+        "low_cpu_mem_usage": True,
+        "device_map": "auto",
+    }
     model = AutoModelForCausalLM.from_pretrained(
-        model_name, 
-        torch_dtype=torch.float16, 
-        cache_dir=cache_dir, 
-        low_cpu_mem_usage=True, 
-        device_map="auto"
+        model_name,
+        dtype=torch.float16,
+        **load_kwargs,
     )
 
-    model.seqlen = model.config.max_position_embeddings 
+    model.seqlen = max(model.config.max_position_embeddings, 2048)
+    print(f"model.seqlen: {model.seqlen}")
     return model
 
 def main():
@@ -119,7 +123,7 @@ def main():
         print("Loading pre-computed quantized weights...")
         with init_empty_weights():
             model = AutoModelForCausalLM.from_config(
-                config=config, torch_dtype=torch.float16, trust_remote_code=True
+                config=config, dtype=torch.float16, trust_remote_code=True
             )
         real_quantize_model_weight(
             model, w_bit=args.w_bit, q_config=q_config, init_only=True
@@ -147,7 +151,8 @@ def main():
         )
         # Dispatch model
         model = simple_dispatch_model(model, device_map=device_map)
-        model.seqlen = model.config.max_position_embeddings 
+        model.seqlen = max(model.config.max_position_embeddings, 2048)
+        print(f"model.seqlen: {model.seqlen}")
 
         model.eval()
     else:

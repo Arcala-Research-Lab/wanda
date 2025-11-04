@@ -14,15 +14,19 @@ print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
 def get_llm(model_name, cache_dir="llm_weights"):
+    load_kwargs = {
+        "cache_dir": cache_dir,
+        "low_cpu_mem_usage": True,
+        "device_map": "auto",
+    }
     model = AutoModelForCausalLM.from_pretrained(
-        model_name, 
-        torch_dtype=torch.float16, 
-        cache_dir=cache_dir, 
-        low_cpu_mem_usage=True, 
-        device_map="auto"
+        model_name,
+        dtype=torch.float16,
+        **load_kwargs,
     )
 
-    model.seqlen = model.config.max_position_embeddings 
+    model.seqlen = max(model.config.max_position_embeddings, 2048)
+    print(f"model.seqlen: {model.seqlen}")
     return model
 
 def main():

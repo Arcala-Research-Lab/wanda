@@ -369,7 +369,16 @@ def main():
             use_fast=True,
         )
 
-    model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, torch_dtype=torch.float16, cache_dir=model_args.cache_dir, low_cpu_mem_usage=True, device_map="auto")
+    load_kwargs = {
+        "cache_dir": model_args.cache_dir,
+        "low_cpu_mem_usage": True,
+        "device_map": "auto",
+    }
+    model = AutoModelForCausalLM.from_pretrained(
+        model_args.model_name_or_path,
+        dtype=torch.float16,
+        **load_kwargs,
+    )
 
     ############################################################################################
     model = prepare_model_for_int8_training(model)
