@@ -8,10 +8,15 @@ from importlib.metadata import version
 from lib.prune_opt import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers
 from lib.eval import eval_ppl, eval_zero_shot
 
+
+MAX_SEQLEN = 8192
+
+
 print('torch', version('torch'))
 print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
+
 
 def get_llm(model_name, cache_dir="llm_weights"):
     load_kwargs = {
@@ -25,7 +30,7 @@ def get_llm(model_name, cache_dir="llm_weights"):
         **load_kwargs,
     )
 
-    model.seqlen = max(model.config.max_position_embeddings, 2048)
+    model.seqlen = min(max(model.config.max_position_embeddings, 2048), MAX_SEQLEN) 
     print(f"model.seqlen: {model.seqlen}")
     return model
 

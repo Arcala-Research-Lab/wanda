@@ -26,6 +26,10 @@ from accelerate import (
     load_checkpoint_in_model,
 )
 
+
+MAX_SEQLEN = 8192
+
+
 print('torch', version('torch'))
 print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
@@ -43,7 +47,7 @@ def get_llm(model_name, cache_dir="llm_weights"):
         **load_kwargs,
     )
 
-    model.seqlen = max(model.config.max_position_embeddings, 2048)
+    model.seqlen = min(max(model.config.max_position_embeddings, 2048), MAX_SEQLEN) 
     print(f"model.seqlen: {model.seqlen}")
     return model
 
@@ -151,7 +155,7 @@ def main():
         )
         # Dispatch model
         model = simple_dispatch_model(model, device_map=device_map)
-        model.seqlen = max(model.config.max_position_embeddings, 2048)
+        model.seqlen = min(max(model.config.max_position_embeddings, 2048), MAX_SEQLEN) 
         print(f"model.seqlen: {model.seqlen}")
 
         model.eval()
