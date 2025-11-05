@@ -6,10 +6,10 @@
 # Models to test
 models=(
     # "decapoda-research/llama-7b-hf"
-    "meta-llama/Llama-2-7b-hf"
-    "meta-llama/Meta-Llama-3-8B"
+    # "meta-llama/Llama-2-7b-hf"
+    # "meta-llama/Meta-Llama-3-8B"
     "meta-llama/Llama-3.1-8B"
-    "meta-llama/Meta-Llama-3-70B"
+    "meta-llama/Llama-3.1-70B"
 )
 
 # Sparsity ratios
