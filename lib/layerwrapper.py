@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from awq.quantize.qmodule import WQLinear
+# from awq.quantize.qmodule import WQLinear
 
 # Define WrappedGPT class
 class WrappedGPT:
