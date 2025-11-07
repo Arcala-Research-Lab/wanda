@@ -8,13 +8,13 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from importlib.metadata import version
 
-from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask
+from lib.prune import prune_wanda, prune_wanda_new, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, find_layers, prune_mag_mask, prune_wanda_mask, prune_wanda_auto_search, prune_wanda_auto_layer_type_search
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
-from lib.awq_pre_quant_no_apply import run_awq
+# from lib.awq_pre_quant_no_apply import run_awq
 
-from awq.quantize.quantizer import real_quantize_model_weight
-from awq.utils.utils import simple_dispatch_model
+# from awq.quantize.quantizer import real_quantize_model_weight
+# from awq.utils.utils import simple_dispatch_model
 from accelerate import (
     init_empty_weights,
     infer_auto_device_map,
@@ -46,8 +46,25 @@ def main():
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
-                        "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
+    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", "wanda_new",
+                        "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search", "wanda_auto", "wanda_auto_layer_type"])
+    
+    parser.add_argument("--mode", type=float, default=0)
+    parser.add_argument("--weight_power", type=float, default=1)
+    parser.add_argument("--wanda_power", type=float, default=1)
+    parser.add_argument("--awq_power", type=float, default=1)
+    parser.add_argument("--layer_name", type=str, default="all")
+    
+    # Auto-search parameters
+    parser.add_argument("--auto_search", action="store_true", help="Enable automatic hyperparameter search")
+    parser.add_argument("--search_grid_size", type=int, default=10, help="Grid size for hyperparameter search")
+    parser.add_argument("--weight_power_min", type=float, default=0.5, help="Minimum weight power for search")
+    parser.add_argument("--weight_power_max", type=float, default=2.0, help="Maximum weight power for search")
+    parser.add_argument("--wanda_power_min", type=float, default=0.5, help="Minimum wanda power for search")
+    parser.add_argument("--wanda_power_max", type=float, default=2.0, help="Maximum wanda power for search")
+    parser.add_argument("--optimize_per_layer", action="store_true", help="Optimize parameters per layer and module")
+    parser.add_argument("--optimization_metric", type=str, choices=["mse", "perplexity"], default="mse", help="Optimization metric for auto-search: 'mse' for mean squared error or 'perplexity' for perplexity")
+
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
     parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
@@ -252,6 +269,50 @@ def main():
         print("pruning starts")
         if args.prune_method == "wanda":
             prune_wanda(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
+        elif args.prune_method == "wanda_new":
+            prune_wanda_new(args, model, tokenizer, device,  prune_n=prune_n, prune_m=prune_m, mode=args.mode, weight_power=args.weight_power, wanda_power=args.wanda_power, awq_power=args.awq_power,layer_name=args.layer_name)
+        elif args.prune_method == "wanda_auto":
+            # Auto-search for optimal hyperparameters
+            optimal_params = prune_wanda_auto_search(
+                args, model, tokenizer, device, 
+                prune_n=prune_n, prune_m=prune_m, 
+                layer_name=args.layer_name,
+                auto_search=args.auto_search,
+                n_grid=args.search_grid_size,
+                weight_power_range=(args.weight_power_min, args.weight_power_max),
+                wanda_power_range=(args.wanda_power_min, args.wanda_power_max),
+                optimize_per_layer=args.optimize_per_layer,
+                optimization_metric=args.optimization_metric
+            )
+            
+            # Save optimal parameters if found
+            if optimal_params and args.save:
+                import json
+                params_file = os.path.join(args.save, "optimal_parameters.json")
+                with open(params_file, 'w') as f:
+                    json.dump(optimal_params, f, indent=2)
+                print(f"Optimal parameters saved to {params_file}")
+                
+        elif args.prune_method == "wanda_auto_layer_type":
+            # Auto-search for optimal hyperparameters per layer type
+            optimal_params = prune_wanda_auto_layer_type_search(
+                args, model, tokenizer, device, 
+                prune_n=prune_n, prune_m=prune_m, 
+                auto_search=args.auto_search,
+                n_grid=args.search_grid_size,
+                weight_power_range=(args.weight_power_min, args.weight_power_max),
+                wanda_power_range=(args.wanda_power_min, args.wanda_power_max),
+                optimization_metric=args.optimization_metric
+            )
+            
+            # Save optimal parameters if found
+            if optimal_params and args.save:
+                import json
+                params_file = os.path.join(args.save, "optimal_parameters_layer_type.json")
+                with open(params_file, 'w') as f:
+                    json.dump(optimal_params, f, indent=2)
+                print(f"Optimal parameters saved to {params_file}")
+                
         elif args.prune_method == "magnitude":
             prune_magnitude(args, model, tokenizer, device, prune_n=prune_n, prune_m=prune_m)
         elif args.prune_method == "sparsegpt":
