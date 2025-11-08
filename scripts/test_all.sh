@@ -6,10 +6,10 @@
 # Models to test
 models=(
     # "decapoda-research/llama-7b-hf"
-    # "meta-llama/Llama-2-7b-hf"
-    # "meta-llama/Meta-Llama-3-8B"
+    "meta-llama/Llama-2-7b-hf"
+    "meta-llama/Meta-Llama-3-8B"
     "meta-llama/Llama-3.1-8B"
-    "meta-llama/Llama-3.1-70B"
+    # "meta-llama/Llama-3.1-70B"
 )
 
 # Sparsity ratios
@@ -19,6 +19,9 @@ sparsity_ratios=(0.5)
 # Sparsity types
 sparsity_types=("unstructured" "2:4" "4:8")
 # sparsity_types=("unstructured")
+
+# Sequence lengths to test
+seqlen_values=(2048 4096)
 
 # Pruning method
 prune_method="wanda"
@@ -33,6 +36,7 @@ run_python_command () {
     local sparsity_ratio=$3
     local sparsity_type=$4
     local use_layerwise=$5
+    local seqlen=$6
 
     local model_name=$(basename "$model" | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]')
 
@@ -42,8 +46,8 @@ run_python_command () {
         scaling_label="layerwise_scaling"
     fi
 
-    local out_dir="../out/${model_name}/${sparsity_type}/${prune_method}/${sparsity_ratio}/${scaling_label}/"
-    local save_model_dir="../saved_models/${model_name}/${sparsity_type}/${prune_method}/${sparsity_ratio}/${scaling_label}/"
+    local out_dir="../out/${model_name}/${sparsity_type}/${prune_method}/${sparsity_ratio}/${scaling_label}/seqlen_${seqlen}/"
+    local save_model_dir="../saved_models/${model_name}/${sparsity_type}/${prune_method}/${sparsity_ratio}/${scaling_label}/seqlen_${seqlen}/"
 
     echo "--------------------------------------------"
     echo "Running pruning for:"
@@ -51,6 +55,7 @@ run_python_command () {
     echo " Method: $prune_method"
     echo " Sparsity Ratio: $sparsity_ratio"
     echo " Sparsity Type: $sparsity_type"
+    echo " Sequence Length: $seqlen"
     echo " Layerwise Scaling: $use_layerwise"
     echo " Save Model: $save_model"
     echo "--------------------------------------------"
@@ -61,6 +66,7 @@ run_python_command () {
         --prune_method \"$prune_method\" \
         --sparsity_ratio \"$sparsity_ratio\" \
         --sparsity_type \"$sparsity_type\" \
+        --seqlen $seqlen \
         --save \"$out_dir\""
 
     # Add flags as needed
@@ -78,7 +84,7 @@ run_python_command () {
     # Run it
     eval $cmd
 
-    echo "Finished: $model | $prune_method | $sparsity_ratio | $sparsity_type | layerwise=$use_layerwise | save_model=$save_model"
+    echo "Finished: $model | $prune_method | $sparsity_ratio | $sparsity_type | seqlen=$seqlen | layerwise=$use_layerwise | save_model=$save_model"
     echo
 }
 
@@ -86,9 +92,11 @@ run_python_command () {
 for model in "${models[@]}"; do
     for sparsity_ratio in "${sparsity_ratios[@]}"; do
         for sparsity_type in "${sparsity_types[@]}"; do
-            # Run both with and without layerwise scaling
-            run_python_command "$model" "$prune_method" "$sparsity_ratio" "$sparsity_type" false
-            run_python_command "$model" "$prune_method" "$sparsity_ratio" "$sparsity_type" true
+            for seqlen in "${seqlen_values[@]}"; do
+                # Run both with and without layerwise scaling
+                run_python_command "$model" "$prune_method" "$sparsity_ratio" "$sparsity_type" false "$seqlen"
+                run_python_command "$model" "$prune_method" "$sparsity_ratio" "$sparsity_type" true "$seqlen"
+            done
         done
     done
 done

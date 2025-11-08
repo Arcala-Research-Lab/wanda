@@ -8,10 +8,13 @@ import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from importlib.metadata import version
+from datetime import datetime
+import time
 
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
+from lib.results import save_results_to_file
 
 try:
     from lib.awq_pre_quant_no_apply import run_awq
@@ -27,15 +30,12 @@ from accelerate import (
 )
 
 
-MAX_SEQLEN = 8192
-
-
 print('torch', version('torch'))
 print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 
-def get_llm(model_name, cache_dir="llm_weights"):
+def get_llm(model_name, cache_dir="llm_weights", seqlen=2048):
     load_kwargs = {
         "cache_dir": cache_dir,
         "low_cpu_mem_usage": True,
@@ -47,7 +47,7 @@ def get_llm(model_name, cache_dir="llm_weights"):
         **load_kwargs,
     )
 
-    model.seqlen = min(max(model.config.max_position_embeddings, 2048), MAX_SEQLEN) 
+    model.seqlen = seqlen
     print(f"model.seqlen: {model.seqlen}")
     return model
 
@@ -57,9 +57,10 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
-    parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
-    parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
+    parser.add_argument("--sparsity_type", type=str, choices=["baseline", "unstructured", "4:8", "2:4"])
+    parser.add_argument("--prune_method", type=str, choices=["baseline", "magnitude", "wanda", "sparsegpt", 
                         "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
+    parser.add_argument("--seqlen", type=int, default=2048, help='Fixed sequence length for the model')
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
     parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
@@ -101,7 +102,7 @@ def main():
 
     # Handling n:m sparsity
     prune_n, prune_m = 0, 0
-    if args.sparsity_type != "unstructured":
+    if args.sparsity_type != "baseline" and args.sparsity_type != "unstructured":
         assert args.sparsity_ratio == 0.5, "sparsity ratio must be 0.5 for structured N:M sparsity"
         prune_n, prune_m = map(int, args.sparsity_type.split(":"))
 
@@ -155,14 +156,14 @@ def main():
         )
         # Dispatch model
         model = simple_dispatch_model(model, device_map=device_map)
-        model.seqlen = min(max(model.config.max_position_embeddings, 2048), MAX_SEQLEN) 
+        model.seqlen = args.seqlen
         print(f"model.seqlen: {model.seqlen}")
 
         model.eval()
     else:
         model_name = args.model.split("/")[-1]
         print(f"loading llm model {args.model}")
-        model = get_llm(args.model, args.cache_dir)
+        model = get_llm(args.model, args.cache_dir, seqlen=args.seqlen)
         model.eval()
         tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
 
@@ -170,6 +171,9 @@ def main():
     if "30b" in args.model or "65b" in args.model: # for 30b and 65b we use device_map to load onto multiple A6000 GPUs, thus the processing here.
         device = model.hf_device_map["lm_head"]
     print("use device ", device)
+    
+    # Start timing
+    start_time = time.time()
 
     if args.calculate_masks:
         for sparsity in args.sparsity_ratios:
@@ -292,13 +296,36 @@ def main():
     model.seqlen = args.eval_seqlen if args.eval_seqlen else model.seqlen # for evaluating perplexity with specific seqlen
     ppl_test = eval_ppl(args, model, tokenizer, device)
     print(f"wikitext perplexity {ppl_test}")
-
+    
+    # End timing
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    # Get current date
+    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Save to single results file
+    save_results_to_file(
+        args.save,
+        current_date,
+        args.model,
+        getattr(args, 'prune_method', None),
+        getattr(args, 'sparsity_type', None),
+        args.seqlen,
+        sparsity_ratio,
+        total_time,
+        ppl_test,
+        getattr(args, 'layerwise_scaling', False)
+    )
+    
+    # Also keep the old format for backward compatibility
     if not os.path.exists(args.save):
         os.makedirs(args.save)
-    save_filepath = os.path.join(args.save, f"log_{args.prune_method}.txt")
+    prune_method_str = getattr(args, 'prune_method', None) or "None"
+    save_filepath = os.path.join(args.save, f"log_{prune_method_str}.txt")
     with open(save_filepath, "w") as f:
         print("method\tactual_sparsity\tppl_test", file=f, flush=True)
-        print(f"{args.prune_method}\t{sparsity_ratio:.4f}\t{ppl_test:.4f}", file=f, flush=True)
+        print(f"{prune_method_str}\t{sparsity_ratio:.4f}\t{ppl_test:.4f}", file=f, flush=True)
 
     if args.eval_zero_shot:
         accelerate=False
