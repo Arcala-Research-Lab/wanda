@@ -8,6 +8,53 @@ from .data import get_loaders
 
 from .ablate import AblateGPT 
 
+
+
+#####################################
+import matplotlib.pyplot as plt
+import os
+
+def save_histogram(data, title, filename, bins=100):
+    """Save a single histogram."""
+    plt.figure(figsize=(10, 6))
+    plt.hist(data.cpu().numpy().flatten(), bins=bins, alpha=0.7, edgecolor='black')
+    plt.xlabel('Value')
+    plt.ylabel('Frequency')
+    plt.title(title)
+    plt.yscale('log')
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close()
+
+def analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, output_dir='distributions'):
+    """Analyze and save distributions for a single layer."""
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(f'{output_dir}/per_layer', exist_ok=True)
+    os.makedirs(f'{output_dir}/by_type', exist_ok=True)
+    
+    # Save per-layer histograms
+    safe_name = name.replace('.', '_')
+    
+    # save_histogram(weights, f'Layer {i} {name} - Weights', 
+    #                f'{output_dir}/per_layer/layer{i}_{safe_name}_weights.png')
+    # save_histogram(wanda_scale, f'Layer {i} {name} - Activations', 
+    #                f'{output_dir}/per_layer/layer{i}_{safe_name}_activations.png')
+    
+    
+    # Save histogram for the W_metric
+    save_histogram(W_metric, f'Layer {i} {name} - W_metric', 
+                   f'{output_dir}/per_layer/layer{i}_{safe_name}_W_metric.png')
+    
+    ##### CHANGE: Return only metric samples #####
+    # Return samples for aggregation
+    #
+    # OLD:
+    # return weights.flatten()[:10000].cpu(), wanda_scale.flatten()[:10000].cpu(), W_metric.flatten()[:10000].cpu()
+    #
+    # NEW:
+    return W_metric.flatten()[:10000].cpu()
+    
+#####################################
+
 def find_layers(module, layers=[nn.Linear], name=''):
     """
     Recursively find the layers of a certain type in a module.
@@ -172,6 +219,13 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     scales_index = 0
     s = []
 
+
+    #####################################
+    # type_weights = {}
+    # type_activations = {}
+    type_metrics = {}
+    #####################################
+
     if args.awq_mask:
         awq_mask = torch.load(args.awq_mask)
     if args.awq_scales:
@@ -225,6 +279,8 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             elif args.layerwise_scaling:
                 weights = torch.abs(subset[name].weight.data)
                 wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+
+
                 if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
                     W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
                 elif name == 'self_attn.v_proj':
@@ -235,6 +291,22 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                     W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
                 else:
                     W_metric = weights * wanda_scale
+                #####################################
+                # w_samples, a_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric)
+
+                m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric)
+                del weights, wanda_scale
+                torch.cuda.empty_cache()    
+                
+                # Aggregate by type
+                if name not in type_metrics:
+                    # type_weights[name] = []
+                    # type_activations[name] = []
+                    type_metrics[name] = [] 
+                # type_weights[name].append(w_samples)
+                # type_activations[name].append(a_samples)
+                type_metrics[name].append(m_samples)
+                #####################################
             else:
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
@@ -287,7 +359,35 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
     if args.capture_scaler_row:
         torch.save(s, 'out/wanda_scales')
-
+    #####################################
+    if args.layerwise_scaling:
+        print("Saving aggregated distributions by layer type...")
+    for layer_name in type_metrics.keys():
+        safe_name = layer_name.replace('.', '_')
+        
+        # all_weights = torch.cat(type_weights[layer_name])
+        # all_activations = torch.cat(type_activations[layer_name])
+        #
+        # NEW: (Commented out)
+        # all_weights = torch.cat(type_weights[layer_name])
+        # all_activations = torch.cat(type_activations[layer_name])
+        
+        all_metrics = torch.cat(type_metrics[layer_name]) 
+        # save_histogram(all_weights, f'{layer_name} - Weights (All Layers)', 
+        #               f'distributions/by_type/{safe_name}_weights_aggregated.png')
+        # save_histogram(all_activations, f'{layer_name} - Activations (All Layers)', 
+        #               f'distributions/by_type/{safe_name}_activations_aggregated.png')
+        #
+        # NEW: (Commented out)
+        # save_histogram(all_weights, f'{layer_name} - Weights (All Layers)', 
+        #               f'distributions/by_type/{safe_name}_weights_aggregated.png')
+        # save_histogram(all_activations, f'{layer_name} - Activations (All Layers)', 
+        #               f'distributions/by_type/{safe_name}_activations_aggregated.png')
+        
+        # Save aggregated histogram for W_metric
+        save_histogram(all_metrics, f'{layer_name} - W_metric (All Layers)', 
+                      f'distributions/by_type/{safe_name}_W_metric_aggregated.png')
+    ######################################
     model.config.use_cache = use_cache 
     torch.cuda.empty_cache()
 
