@@ -9,49 +9,71 @@ from .data import get_loaders
 from .ablate import AblateGPT 
 
 
-
 #####################################
+import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def save_histogram(data, title, filename, bins=100):
-    """Save a single histogram."""
+def save_histogram(data_to_plot, data_for_threshold, title, filename, bins=100, sparsity_ratio=None):
+    """
+    Save a stacked histogram.
+    Plots the distribution of 'data_to_plot' (e.g., weights).
+    Colors the bars based on 'data_for_threshold' (e.g., W_metric)
+    and 'sparsity_ratio'.
+    """
     plt.figure(figsize=(10, 6))
-    plt.hist(data.cpu().numpy().flatten(), bins=bins, alpha=0.7, edgecolor='black')
-    plt.xlabel('Value')
+    
+    plot_data_flat = data_to_plot.cpu().numpy().flatten()
+    threshold_data_flat = data_for_threshold.cpu().numpy().flatten()
+
+    if sparsity_ratio is not None and sparsity_ratio > 0:
+        threshold = np.quantile(threshold_data_flat, sparsity_ratio)
+        
+        pruned_mask = threshold_data_flat <= threshold
+        
+        pruned_data = plot_data_flat[pruned_mask]
+        kept_data = plot_data_flat[~pruned_mask]
+
+        common_bins = np.histogram_bin_edges(plot_data_flat, bins=bins)
+        
+        plt.hist(
+            [pruned_data, kept_data], 
+            bins=common_bins, 
+            stacked=True, 
+            color=['#E74C3C', '#3498DB'],  # Red for pruned, Blue for kept
+            label=['Pruned (to be removed)', 'Kept']
+        )
+        
+        plt.legend()
+    else:
+        plt.hist(plot_data_flat, bins=bins, alpha=0.7, edgecolor='black')
+
+    plt.xlabel('Weight Value')
     plt.ylabel('Frequency')
     plt.title(title)
     plt.yscale('log')
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close()
 
-def analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, output_dir='distributions'):
+def analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, sparsity_ratio, filename_prefix, output_dir='distributions'):
     """Analyze and save distributions for a single layer."""
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(f'{output_dir}/per_layer', exist_ok=True)
     os.makedirs(f'{output_dir}/by_type', exist_ok=True)
     
-    # Save per-layer histograms
     safe_name = name.replace('.', '_')
     
-    # save_histogram(weights, f'Layer {i} {name} - Weights', 
-    #                f'{output_dir}/per_layer/layer{i}_{safe_name}_weights.png')
-    # save_histogram(wanda_scale, f'Layer {i} {name} - Activations', 
-    #                f'{output_dir}/per_layer/layer{i}_{safe_name}_activations.png')
+    # Use the new prefix to create a unique filename
+    output_filename = f'{output_dir}/per_layer/{filename_prefix}_layer{i}_{safe_name}_weights_pruning_stacked.png'
+
+    save_histogram(weights, W_metric,
+                   f'Layer {i} {name} - Weight Distribution (Pruning Applied)',
+                   output_filename,
+                   sparsity_ratio=sparsity_ratio)
     
+    return weights.flatten().cpu(), W_metric.flatten().cpu()
     
-    # Save histogram for the W_metric
-    save_histogram(W_metric, f'Layer {i} {name} - W_metric', 
-                   f'{output_dir}/per_layer/layer{i}_{safe_name}_W_metric.png')
-    
-    ##### CHANGE: Return only metric samples #####
-    # Return samples for aggregation
-    #
-    # OLD:
-    # return weights.flatten()[:10000].cpu(), wanda_scale.flatten()[:10000].cpu(), W_metric.flatten()[:10000].cpu()
-    #
-    # NEW:
-    return W_metric.flatten()[:10000].cpu()
+#####################################
     
 #####################################
 
@@ -221,9 +243,15 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
 
     #####################################
-    # type_weights = {}
+    type_weights = {}
     # type_activations = {}
     type_metrics = {}
+    if args.layerwise_scaling:
+        filename_prefix = "new_wanda"
+        print("--- Running in NEW WANDA mode (layerwise_scaling=True) ---")
+    else:
+        filename_prefix = "normal_wanda"
+        print("--- Running in NORMAL WANDA mode (layerwise_scaling=False) ---")
     #####################################
 
     if args.awq_mask:
@@ -277,37 +305,51 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                         W_metric = torch.abs(subset[name].weight.data) * awq_scales[scales_index].reshape((1, -1)).to(subset[name].weight.data.device)
                 scales_index += 1
             elif args.layerwise_scaling:
-                weights = torch.abs(subset[name].weight.data)
+                weights = subset[name].weight.data  # <-- Get the raw weights (with negative values)
                 wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
 
-
+                # W_metric is calculated based on the *absolute* value
                 if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
-                    W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
+                    W_metric = torch.pow(torch.abs(weights), 1)  * torch.pow(wanda_scale, 0.1)
                 elif name == 'self_attn.v_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                    W_metric = torch.pow(torch.abs(weights), 1.75)  * torch.pow(wanda_scale, 1)
                 elif name == 'self_attn.o_proj':
-                    W_metric = torch.pow(weights, 1.25)  * torch.pow(wanda_scale, 1)
+                    W_metric = torch.pow(torch.abs(weights), 1.25)  * torch.pow(wanda_scale, 1)
                 elif name == 'mlp.down_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                    W_metric = torch.pow(torch.abs(weights), 1.75)  * torch.pow(wanda_scale, 1)
                 else:
-                    W_metric = weights * wanda_scale
+                    W_metric = torch.abs(weights) * wanda_scale
+                
                 #####################################
-                # w_samples, a_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric)
-
-                m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric)
+                w_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, args.sparsity_ratio, filename_prefix)
+                
                 del weights, wanda_scale
                 torch.cuda.empty_cache()    
                 
-                # Aggregate by type
                 if name not in type_metrics:
-                    # type_weights[name] = []
-                    # type_activations[name] = []
+                    type_weights[name] = []
                     type_metrics[name] = [] 
-                # type_weights[name].append(w_samples)
-                # type_activations[name].append(a_samples)
+                type_weights[name].append(w_samples)
                 type_metrics[name].append(m_samples)
                 #####################################
             else:
+                #####################################
+                weights = subset[name].weight.data # Get raw weights for plotting
+                wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                W_metric = torch.abs(weights) * wanda_scale
+
+                w_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, args.sparsity_ratio, filename_prefix)
+                
+                del weights, wanda_scale
+                torch.cuda.empty_cache()    
+                
+                if name not in type_metrics:
+                    type_weights[name] = []
+                    type_metrics[name] = [] 
+                type_weights[name].append(w_samples)
+                type_metrics[name].append(m_samples)
+                #####################################
+
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
                 W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))               
@@ -360,33 +402,27 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     if args.capture_scaler_row:
         torch.save(s, 'out/wanda_scales')
     #####################################
-    if args.layerwise_scaling:
+    
+    # This logic is simplified: it will just save plots if any were generated.
+    if type_metrics:
         print("Saving aggregated distributions by layer type...")
+        
     for layer_name in type_metrics.keys():
         safe_name = layer_name.replace('.', '_')
         
-        # all_weights = torch.cat(type_weights[layer_name])
-        # all_activations = torch.cat(type_activations[layer_name])
-        #
-        # NEW: (Commented out)
-        # all_weights = torch.cat(type_weights[layer_name])
-        # all_activations = torch.cat(type_activations[layer_name])
-        
+        all_weights = torch.cat(type_weights[layer_name]) 
         all_metrics = torch.cat(type_metrics[layer_name]) 
-        # save_histogram(all_weights, f'{layer_name} - Weights (All Layers)', 
-        #               f'distributions/by_type/{safe_name}_weights_aggregated.png')
-        # save_histogram(all_activations, f'{layer_name} - Activations (All Layers)', 
-        #               f'distributions/by_type/{safe_name}_activations_aggregated.png')
-        #
-        # NEW: (Commented out)
-        # save_histogram(all_weights, f'{layer_name} - Weights (All Layers)', 
-        #               f'distributions/by_type/{safe_name}_weights_aggregated.png')
-        # save_histogram(all_activations, f'{layer_name} - Activations (All Layers)', 
-        #               f'distributions/by_type/{safe_name}_activations_aggregated.png')
-        
-        # Save aggregated histogram for W_metric
-        save_histogram(all_metrics, f'{layer_name} - W_metric (All Layers)', 
-                      f'distributions/by_type/{safe_name}_W_metric_aggregated.png')
+
+        # --- This uses the prefix we defined at the start ---
+        output_filename = f'distributions/by_type/{filename_prefix}_{safe_name}_weights_pruning_stacked_aggregated.png'
+        output_title = f'{layer_name} - {filename_prefix} - Aggregated Weight Distribution'
+
+        save_histogram(
+            all_weights, all_metrics,
+            output_title,
+            output_filename,
+            sparsity_ratio=args.sparsity_ratio
+        )
     ######################################
     model.config.use_cache = use_cache 
     torch.cuda.empty_cache()
