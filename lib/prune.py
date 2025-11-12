@@ -154,7 +154,185 @@ def prune_mag_mask(args, model, tokenizer, device=torch.device("cuda:0"), prune_
 
     return W_mag_mask_list
 
+def prune_wandapp_rgs(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
+    """
+    Wanda++ RGS-only pruning (block-level regional gradient score, alpha=100).
+    Keeps same external behavior as prune_wanda: modifies model weights in-place and returns None.
 
+    Important notes:
+    - This function follows the 'RGS only' column: compute RGS once, prune once, no RO, no AWQ.
+    - It collects activation norms using the same WrappedGPT hook approach as the original Wanda.
+    - Supports structured n:m pruning when prune_n != 0 (same logic as original function).
+    """
+    alpha = 100.0  # hard-coded per your request / paper
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+
+    print("loading calibration data (RGS-only)")
+    dataloader, _ = get_loaders("c4", nsamples=args.nsamples, seed=args.seed,
+                                seqlen=getattr(model, "seqlen", None), tokenizer=tokenizer)
+    print("dataset loading complete")
+
+    # prepare_calibration_input should return inps, outs, attention_mask, position_ids similar to original
+    with torch.no_grad():
+        inps, outs, attention_mask, position_ids, position_embeddings = prepare_calibration_input(model, dataloader, device)
+
+    layers = model.model.layers
+    s = []
+
+    # Loop over decoder layers (block-level as in Wanda++)
+    for i in range(len(layers)):
+        layer = layers[i]
+        subset = find_layers(layer)  # mapping of prunable submodules inside this block
+
+        # create WrappedGPT wrappers for each prunable submodule to collect scaler_row
+        wrapped_layers = {}
+        for name in subset:
+            wrapped_layers[name] = WrappedGPT(subset[name])
+
+        # register forward hooks to collect input stats (same as original)
+        def add_batch(name):
+            def tmp(_, inp, out):
+                wrapped_layers[name].add_batch(inp[0].data, out.data)
+            return tmp
+
+        handles = []
+        for name in wrapped_layers:
+            handles.append(subset[name].register_forward_hook(add_batch(name)))
+
+        # Run forward through the whole block for each calibration sample to populate scaler_row
+        for j in range(args.nsamples):
+            with torch.no_grad():
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
+                #outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+
+        for h in handles:
+            h.remove()
+
+        # Optionally capture scaler_row (same as Wanda)
+        if args.capture_scaler_row:
+            for name in subset:
+                s.append(wrapped_layers[name].scaler_row)
+
+        # ---------- Compute block-level regional gradients ----------
+        # We will compute per-module squared-grad accumulators for weight params only
+        sq_grad = {}
+        for name in subset:
+            mod = subset[name]
+            # only track if module has a weight parameter (Linear-like)
+            if hasattr(mod, "weight"):
+                sq_grad[name] = torch.zeros_like(mod.weight.data, device=mod.weight.data.device)
+
+        # Enable grads for backward and accumulate per-sample squared grads
+        N = len(inps)  # typically args.nsamples
+        # Make sure params grads start at zero
+        # We'll do backward through the whole layer (block-level).
+        for j in range(N):
+            # forward through the block with grad enabled
+            # move inputs to the device of the block parameters
+            sample_inp = inps[j].unsqueeze(0)
+            # ensure sample_inp on same device as layer's params
+            layer_dev = next(layer.parameters()).device if any(p.requires_grad for p in layer.parameters()) else device
+            sample_inp = sample_inp.to(layer_dev)
+            # move attention mask / position ids if available
+            att_mask = attention_mask.to(layer_dev) if attention_mask is not None else None
+            pos_ids = position_ids.to(layer_dev) if position_ids is not None else None
+            pos_embs = position_embeddings
+
+            # enable grad context
+            # Important: do NOT call torch.no_grad() here
+            # Zero grads for the layer's params
+            layer.zero_grad(set_to_none=True)
+
+            # compute forward and regional loss L_RGS = ||block_out||_2
+            out = layer(sample_inp, attention_mask=att_mask, position_ids=pos_ids, position_embeddings=pos_embs)[0]
+            loss = out.view(-1).norm()  # L2 norm of block output
+
+            # backward to compute gradients wrt block params
+            loss.backward()
+
+            # accumulate squared gradients for each tracked submodule weight
+            with torch.no_grad():
+                for name in list(sq_grad.keys()):
+                    mod = subset[name]
+                    if hasattr(mod, "weight") and mod.weight.grad is not None:
+                        sq_grad[name] += (mod.weight.grad.detach() ** 2)
+
+            # clear grads for next sample
+            layer.zero_grad(set_to_none=True)
+
+        # finalize G: sqrt(mean squared grads)
+        G = {}
+        for name, acc in sq_grad.items():
+            G[name] = torch.sqrt(acc / float(N))
+
+        # ---------- Build pruning metric and apply pruning (RGS-only) ----------
+        for name in subset:
+            print(f"RGS pruning block {i} submodule {name}")
+            mod = subset[name]
+            if not hasattr(mod, "weight"):
+                # nothing to prune in this submodule
+                continue
+
+            weight = mod.weight.data  # [d_out, d_in] typically
+
+            # input_norms from wrapped_layers (same shape usage as original Wanda)
+            # wrapped_layers[name].scaler_row has shape (d_in,) in original code
+            input_norms = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1, -1))).to(weight.device)
+
+            # get G for that weight (if not tracked, fallback to zeros)
+            if name in G:
+                G_for_weight = G[name].to(weight.device)
+                # Ensure shapes align: G_for_weight should be same shape as weight
+                if G_for_weight.shape != weight.shape:
+                    # If gradient shape differs (rare), try to broadcast along output dim
+                    try:
+                        G_for_weight = G_for_weight.reshape(weight.shape)
+                    except Exception:
+                        # fallback: create zeros of weight shape to avoid crash
+                        G_for_weight = torch.zeros_like(weight)
+            else:
+                G_for_weight = torch.zeros_like(weight)
+
+            # Wanda++ RGS metric: (alpha * G + ||X_j||2) * |W_ij|
+            W_metric = torch.abs(weight) * (alpha * G_for_weight + input_norms)
+
+            # create mask (same mask logic as original Wanda)
+            W_mask = (torch.zeros_like(W_metric) == 1)  # all False initially
+
+            if prune_n != 0:
+                # structured n:m pruning (preserve same behavior)
+                for ii in range(W_metric.shape[1]):
+                    if ii % prune_m == 0:
+                        tmp = W_metric[:, ii:(ii + prune_m)].float()
+                        # choose prune_n smallest per row inside this chunk
+                        topk_idx = torch.topk(tmp, prune_n, dim=1, largest=False)[1]
+                        W_mask.scatter_(1, ii + topk_idx, True)
+            else:
+                # unstructured pruning: pick lowest-scoring columns per row proportionally to sparsity_ratio
+                sort_res = torch.sort(W_metric, dim=-1, stable=True)
+                # number of elements to prune per row (original code uses columns * sparsity_ratio)
+                k = int(W_metric.shape[1] * args.sparsity_ratio)
+                if k > 0:
+                    indices = sort_res[1][:, :k]  # indices to set True (pruned)
+                    W_mask.scatter_(1, indices, True)
+
+            # apply mask: set weights to zero
+            mod.weight.data[W_mask] = 0
+
+        # After pruning this block, run forward passes to swap inps/outs like original did
+        for j in range(args.nsamples):
+            with torch.no_grad():
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
+        inps, outs = outs, inps
+
+    # optionally save collected scaler_rows like original
+    if args.capture_scaler_row:
+        torch.save(s, 'out/wandapp_rgs_scales')
+
+    model.config.use_cache = use_cache
+    torch.cuda.empty_cache()
+    print("RGS-only pruning complete.")
 
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     use_cache = model.config.use_cache 

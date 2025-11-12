@@ -1,0 +1,21 @@
+
+
+CUDA_LAUNCH_BLOCKING=1 python main.py \
+  --model /home/yichx14/models/snapshots/01c7f73d771dfac7d292323805ebc428287df4f9 \
+  --prune_method wanda_pp \
+  --sparsity_ratio 0.5 \
+  --sparsity_type unstructured \
+  --save out/llama_7b/unstructured/wanda/ 
+
+CUDA_LAUNCH_BLOCKING=1 python main.py \
+--model /home/yichx14/models/models--meta-llama--Meta-Llama-3.1-8B/snapshots/d04e592bb4f6aa9cfee91e2e20afa771667e1d4b \
+--prune_method wanda_pp \
+--sparsity_ratio 0.5 \
+--sparsity_type unstructured \
+--save out/llama_7b/unstructured/wanda/ 
+
+lm_eval --model hf \
+    --model_args pretrained=/home/yichx14/Llama2_7b/snapshots/01c7f73d771dfac7d292323805ebc428287df4f9 \
+    --tasks wikitext2 \
+    --device cuda:0 \
+    --batch_size auto
