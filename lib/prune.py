@@ -2,6 +2,8 @@ import time
 import heapq 
 import torch 
 import torch.nn as nn 
+import json
+import os
 from .sparsegpt import SparseGPT 
 from .layerwrapper import WrappedGPT
 from .data import get_loaders 
@@ -160,6 +162,16 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
+    # Load layerwise scaling powers from JSON file if provided
+    layerwise_powers = {}
+    if hasattr(args, 'layerwise_powers_json') and args.layerwise_powers_json:
+        if os.path.exists(args.layerwise_powers_json):
+            with open(args.layerwise_powers_json, 'r') as f:
+                layerwise_powers = json.load(f)
+            print(f"Loaded layerwise powers from {args.layerwise_powers_json}")
+        else:
+            print(f"Warning: JSON file {args.layerwise_powers_json} not found, using default values")
+
     print("loading calibdation data")
     # trying wikitext loader
     # dataloader, _ = get_loaders("wikitext2",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
@@ -230,16 +242,28 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                         W_metric = torch.abs(subset[name].weight.data) * awq_scales[scales_index].reshape((1, -1)).to(subset[name].weight.data.device)
                 scales_index += 1
             elif args.layerwise_scaling:
+                # weights = torch.abs(subset[name].weight.data)
+                # wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+                # if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
+                #     W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
+                # elif name == 'self_attn.v_proj':
+                #     W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                # elif name == 'self_attn.o_proj':
+                #     W_metric = torch.pow(weights, 1.25)  * torch.pow(wanda_scale, 1)
+                # elif name == 'mlp.down_proj':
+                #     W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                # else:
+                #     W_metric = weights * wanda_scale
+
+
                 weights = torch.abs(subset[name].weight.data)
                 wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
-                if name == 'mlp.gate_proj' or name == 'mlp.up_proj':
-                    W_metric = torch.pow(weights, 1)  * torch.pow(wanda_scale, 0.1)
-                elif name == 'self_attn.v_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
-                elif name == 'self_attn.o_proj':
-                    W_metric = torch.pow(weights, 1.25)  * torch.pow(wanda_scale, 1)
-                elif name == 'mlp.down_proj':
-                    W_metric = torch.pow(weights, 1.75)  * torch.pow(wanda_scale, 1)
+                
+                # Use JSON file values if available, otherwise use default
+                if name in layerwise_powers:
+                    weight_power = layerwise_powers[name]['weight_power']
+                    wanda_power = layerwise_powers[name]['wanda_power']
+                    W_metric = torch.pow(weights, weight_power) * torch.pow(wanda_scale, wanda_power)
                 else:
                     W_metric = weights * wanda_scale
             else:

@@ -78,6 +78,7 @@ def main():
     parser.add_argument("--scale_and_wmetric", action="store_true", help='applies AWQ scales first then wmetric')
     parser.add_argument("--wmetric_and_scale", action="store_true", help='applies wmetric first then AWQ scales')
     parser.add_argument("--layerwise_scaling", action="store_true", help="implements weighing layers' scales differently for wanda")
+    parser.add_argument("--layerwise_powers_json", type=str, default=None, help="Path to JSON file containing layerwise power values (weight_power and wanda_power for each layer)")
     parser.add_argument("--normalize", action="store_true", help="if normalizing all 3 when combining")
 
     parser.add_argument("--eval_zero_shot", action="store_true")
