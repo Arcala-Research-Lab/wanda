@@ -16,10 +16,26 @@ class WrappedGPT:
         self.scaler_row = torch.zeros((self.columns), device=self.dev)
         self.nsamples = 0
 
+        ### 
+        self.raw_activations = [] 
+        self.capture_raw = True
+        ###
+
         self.layer_id = layer_id 
         self.layer_name = layer_name
 
     def add_batch(self, inp, out):
+        # CAPTURE RAW ACTIVATIONS FIRST, before any transformations
+        if self.capture_raw and len(self.raw_activations) < 2:
+            if len(inp.shape) == 2:
+                inp_to_save = inp.unsqueeze(0)  # (1, seq*batch, in_features)
+            else:
+                inp_to_save = inp  # (batch, seq, in_features)
+            self.raw_activations.append(inp_to_save.detach().cpu().clone())
+            
+            if len(self.raw_activations) >= 2:
+                self.capture_raw = False
+        
         if len(inp.shape) == 2:
             inp = inp.unsqueeze(0)
         tmp = inp.shape[0]
@@ -33,3 +49,4 @@ class WrappedGPT:
 
         inp = inp.type(torch.float32)
         self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2  / self.nsamples
+         

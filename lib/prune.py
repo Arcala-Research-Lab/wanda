@@ -14,67 +14,98 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-def save_histogram(data_to_plot, data_for_threshold, title, filename, bins=100, sparsity_ratio=None):
+
+def save_activation_distribution(activations, title, filename, bins=100):
     """
-    Save a stacked histogram.
-    Plots the distribution of 'data_to_plot' (e.g., weights).
-    Colors the bars based on 'data_for_threshold' (e.g., W_metric)
-    and 'sparsity_ratio'.
+    Save histogram of activation distribution.
     """
     plt.figure(figsize=(10, 6))
     
-    plot_data_flat = data_to_plot.cpu().numpy().flatten()
-    threshold_data_flat = data_for_threshold.cpu().numpy().flatten()
-
-    if sparsity_ratio is not None and sparsity_ratio > 0:
-        threshold = np.quantile(threshold_data_flat, sparsity_ratio)
-        
-        pruned_mask = threshold_data_flat <= threshold
-        
-        pruned_data = plot_data_flat[pruned_mask]
-        kept_data = plot_data_flat[~pruned_mask]
-
-        common_bins = np.histogram_bin_edges(plot_data_flat, bins=bins)
-        
-        plt.hist(
-            [pruned_data, kept_data], 
-            bins=common_bins, 
-            stacked=True, 
-            color=['#E74C3C', '#3498DB'],  # Red for pruned, Blue for kept
-            label=['Pruned (to be removed)', 'Kept']
-        )
-        
-        plt.legend()
-    else:
-        plt.hist(plot_data_flat, bins=bins, alpha=0.7, edgecolor='black')
-
-    plt.xlabel('Weight Value')
-    plt.ylabel('Frequency')
-    plt.title(title)
+    acts = activations.cpu().numpy().flatten()
+    
+    # Compute statistics
+    mean_val = acts.mean()
+    std_val = acts.std()
+    threshold_pos = mean_val + 3 * std_val
+    threshold_neg = mean_val - 3 * std_val
+    
+    plt.hist(acts, bins=bins, alpha=0.7, color='#3498DB', edgecolor='black')
+    plt.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.4f}')
+    plt.axvline(threshold_pos, color='orange', linestyle='--', linewidth=2, label=f'+3σ: {threshold_pos:.4f}')
+    plt.axvline(threshold_neg, color='orange', linestyle='--', linewidth=2, label=f'-3σ: {threshold_neg:.4f}')
+    
+    plt.xlabel('Raw Activation Value', fontsize=12)
+    plt.ylabel('Frequency', fontsize=12)
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.legend()
     plt.yscale('log')
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
     plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close()
 
-def analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, sparsity_ratio, filename_prefix, output_dir='distributions'):
-    """Analyze and save distributions for a single layer."""
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(f'{output_dir}/per_layer', exist_ok=True)
-    os.makedirs(f'{output_dir}/by_type', exist_ok=True)
-    
-    safe_name = name.replace('.', '_')
-    
-    # Use the new prefix to create a unique filename
-    output_filename = f'{output_dir}/per_layer/{filename_prefix}_layer{i}_{safe_name}_weights_pruning_stacked.png'
 
-    save_histogram(weights, W_metric,
-                   f'Layer {i} {name} - Weight Distribution (Pruning Applied)',
-                   output_filename,
-                   sparsity_ratio=sparsity_ratio)
+def compute_activation_stats(activations):
+    """Compute statistics for activations."""
+    acts = activations.flatten()
+    mean_val = acts.mean().item()
+    std_val = acts.std().item()
+    kurtosis = (((acts - mean_val) / std_val) ** 4).mean().item()
+    max_mean_ratio = (acts.max() / mean_val).item()
+    pct_outliers = 100 * (acts > mean_val + 3*std_val).float().mean().item()
     
-    return weights.flatten().cpu(), W_metric.flatten().cpu()
+    return {
+        'mean': mean_val,
+        'std': std_val,
+        'kurtosis': kurtosis,
+        'max_mean_ratio': max_mean_ratio,
+        'pct_outliers': pct_outliers
+    }
+
+def extract_raw_activations(wrapped_layers):
+    """Extract raw activations from first 2 batches."""
+    raw_act_dict = {}
     
-#####################################
+    for name, wrapper in wrapped_layers.items():
+        if len(wrapper.raw_activations) > 0:
+            # Concatenate first 2 batches and flatten
+            acts = torch.cat(wrapper.raw_activations, dim=0)  # (2, seq_len, in_features)
+            acts_flat = acts.reshape(-1, acts.shape[-1])  # (2*seq_len, in_features)
+            raw_act_dict[name] = acts_flat
     
+    return raw_act_dict
+
+
+def analyze_layer_distributions(i, name, weights, W_mask, outlier_mask_full, filename_prefix, output_dir='distributions'):
+    """Analyze and save distributions for a single layer - REMOVED PER-LAYER PLOTS."""
+    # Just return data for aggregation, no per-layer plots
+    return weights.flatten().cpu(), W_mask.flatten().cpu(), outlier_mask_full.flatten().cpu()
+
+
+def compute_outlier_mask(activations, weights_shape, threshold_sigma=3.0):
+    """
+    Compute which weights correspond to outlier activations (>mean + 3*std).
+    
+    Args:
+        activations: scaler_row tensor, shape (in_features,) or (1, in_features)
+        weights_shape: shape of weight tensor (out_features, in_features)
+        threshold_sigma: number of std devs above mean to be considered outlier
+    
+    Returns:
+        Boolean mask of shape (out_features, in_features) where True = outlier activation
+    """
+    acts = activations.flatten()
+    mean_act = acts.mean()
+    std_act = acts.std()
+    threshold = mean_act + threshold_sigma * std_act
+    
+    # Create mask: True where activation is outlier
+    outlier_act_mask = acts > threshold
+    
+    # Broadcast to weight shape (each column gets same outlier status)
+    outlier_mask = outlier_act_mask.unsqueeze(0).expand(weights_shape[0], -1)
+    
+    return outlier_mask
 #####################################
 
 def find_layers(module, layers=[nn.Linear], name=''):
@@ -242,16 +273,26 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     s = []
 
 
-    #####################################
-    type_weights = {}
-    # type_activations = {}
-    type_metrics = {}
+    ##################################### Initialize structures
+    # type_weights = {}
+    # type_masks = {} 
+    # type_outlier_masks = {} 
+    activation_stats = {} 
+    
     if args.layerwise_scaling:
-        filename_prefix = "new_wanda"
-        print("--- Running in NEW WANDA mode (layerwise_scaling=True) ---")
+        if args.sparsity_type != "unstructured":
+            filename_prefix = f"structured_{prune_n}_{prune_m}_layerwise"
+            print(f"--- Running LAYERWISE SCALING with STRUCTURED {prune_n}:{prune_m} mode ---")
+        else:
+            filename_prefix = "unstructured_layerwise" 
+            print("--- Running LAYERWISE SCALING with UNSTRUCTURED mode ---")
     else:
-        filename_prefix = "normal_wanda"
-        print("--- Running in NORMAL WANDA mode (layerwise_scaling=False) ---")
+        if args.sparsity_type != "unstructured":
+            filename_prefix = f"structured_{prune_n}_{prune_m}_wanda"
+            print(f"--- Running in STRUCTURED {prune_n}:{prune_m} WANDA mode ---")
+        else:
+            filename_prefix = "normal_wanda"
+            print("--- Running in NORMAL WANDA mode (layerwise_scaling=False) ---")
     #####################################
 
     if args.awq_mask:
@@ -319,36 +360,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                     W_metric = torch.pow(torch.abs(weights), 1.75)  * torch.pow(wanda_scale, 1)
                 else:
                     W_metric = torch.abs(weights) * wanda_scale
-                
-                #####################################
-                w_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, args.sparsity_ratio, filename_prefix)
-                
-                del weights, wanda_scale
-                torch.cuda.empty_cache()    
-                
-                if name not in type_metrics:
-                    type_weights[name] = []
-                    type_metrics[name] = [] 
-                type_weights[name].append(w_samples)
-                type_metrics[name].append(m_samples)
-                #####################################
             else:
-                #####################################
-                weights = subset[name].weight.data # Get raw weights for plotting
-                wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
-                W_metric = torch.abs(weights) * wanda_scale
-
-                w_samples, m_samples = analyze_layer_distributions(i, name, weights, wanda_scale, W_metric, args.sparsity_ratio, filename_prefix)
-                
-                del weights, wanda_scale
-                torch.cuda.empty_cache()    
-                
-                if name not in type_metrics:
-                    type_weights[name] = []
-                    type_metrics[name] = [] 
-                type_weights[name].append(w_samples)
-                type_metrics[name].append(m_samples)
-                #####################################
 
                 if args.capture_scaler_row:
                     s.append(wrapped_layers[name].scaler_row)
@@ -392,6 +404,58 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
                 W_mask = torch.logical_and(W_mask, torch.logical_not(awq_mask[mask_index]).reshape(W_mask.shape[0], W_mask.shape[1]).to(W_mask.device))
                 mask_index += 1
 
+            #################################### Computing step for activation statistics
+            # weights = subset[name].weight.data  
+            
+            # Compute outlier mask based on activations
+            activations = wrapped_layers[name].scaler_row
+            # outlier_mask = compute_outlier_mask(activations, weights.shape, threshold_sigma=3.0)
+
+            # Collect activation statistics
+            if name not in activation_stats:
+                activation_stats[name] = {
+                    'raw_activations': [], 
+                    'mean': [], 'std': [], 'kurtosis': [], 
+                    'max_mean_ratio': [], 'pct_outliers': []
+                }
+            
+            if len(wrapped_layers[name].raw_activations) > 0:
+                acts = torch.cat(wrapped_layers[name].raw_activations, dim=0)  # (2, 2048, 4096)
+                acts_flat = acts.reshape(-1, acts.shape[-1]).flatten()  # Flatten all values
+                activation_stats[name]['raw_activations'].append(acts_flat.cpu())
+                
+                # Compute stats on raw activations (use float64 to avoid overflow)
+                acts_flat_f64 = acts_flat.double()  # Convert to float64
+                mean_val = acts_flat_f64.mean().item()
+                std_val = acts_flat_f64.std().item()
+                kurtosis = (((acts_flat_f64 - mean_val) / (std_val + 1e-10)) ** 4).mean().item()
+                max_mean_ratio = (acts_flat_f64.abs().max() / (abs(mean_val) + 1e-10)).item()
+                threshold = mean_val + 3 * std_val
+                pct_outliers = 100 * (acts_flat_f64 > threshold).float().mean().item()
+                
+                activation_stats[name]['mean'].append(mean_val)
+                activation_stats[name]['std'].append(std_val)
+                activation_stats[name]['kurtosis'].append(kurtosis)
+                activation_stats[name]['max_mean_ratio'].append(max_mean_ratio)
+                activation_stats[name]['pct_outliers'].append(pct_outliers)
+
+            # w_samples, mask_samples, outlier_samples = analyze_layer_distributions(
+            #     i, name, weights, W_mask, outlier_mask, filename_prefix
+            # )
+            
+            # if name not in type_masks:
+            #     type_weights[name] = []
+            #     type_masks[name] = []
+            #     type_outlier_masks[name] = []
+            # type_weights[name].append(w_samples)
+            # type_masks[name].append(mask_samples)
+            # type_outlier_masks[name].append(outlier_samples)
+
+            del W_metric
+            if args.layerwise_scaling: 
+                del wanda_scale
+            torch.cuda.empty_cache()    
+            ####################################
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
 
         for j in range(args.nsamples):
@@ -401,28 +465,57 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
     if args.capture_scaler_row:
         torch.save(s, 'out/wanda_scales')
-    #####################################
+    ##################################### Saving activation statistics summary
+    print("\n" + "="*80)
+    print(f"ACTIVATION STATISTICS SUMMARY - {filename_prefix}")
+    print("="*80)
+    print(f"{'Layer Type':<20} {'Kurtosis':<12} {'Max/Mean':<12} {'%Outliers':<12} {'Mean':<12} {'Std':<12}")
+    print("-"*80)
     
-    # This logic is simplified: it will just save plots if any were generated.
-    if type_metrics:
-        print("Saving aggregated distributions by layer type...")
+    if activation_stats:
+        os.makedirs('distributions/activations', exist_ok=True)
         
-    for layer_name in type_metrics.keys():
-        safe_name = layer_name.replace('.', '_')
+        for layer_name in sorted(activation_stats.keys()):
+            stats = activation_stats[layer_name]
+            
+            # Compute averages
+            avg_kurtosis = np.mean(stats['kurtosis'])
+            avg_max_mean = np.mean(stats['max_mean_ratio'])
+            avg_pct_outliers = np.mean(stats['pct_outliers'])
+            avg_mean = np.mean(stats['mean'])
+            avg_std = np.mean(stats['std'])
+            
+            print(f"{layer_name:<20} {avg_kurtosis:<12.2f} {avg_max_mean:<12.2f} {avg_pct_outliers:<12.2f} {avg_mean:<12.6f} {avg_std:<12.6f}")
+            
+            if len(stats.get('raw_activations', [])) > 0:
+                all_activations = torch.cat(stats['raw_activations'])
+                safe_name = layer_name.replace('.', '_')
+                
+                act_filename = f'distributions/activations/{filename_prefix}_{safe_name}_activation_distribution.png'
+                act_title = f'{layer_name} - {filename_prefix} - Raw Activation Distribution'
+                save_activation_distribution(all_activations, act_title, act_filename)
+    
+    print("="*80)
+    if activation_stats:
+        os.makedirs('stats', exist_ok=True)
+        csv_filename = f'stats/{filename_prefix}_activation_dist.csv'
         
-        all_weights = torch.cat(type_weights[layer_name]) 
-        all_metrics = torch.cat(type_metrics[layer_name]) 
-
-        # --- This uses the prefix we defined at the start ---
-        output_filename = f'distributions/by_type/{filename_prefix}_{safe_name}_weights_pruning_stacked_aggregated.png'
-        output_title = f'{layer_name} - {filename_prefix} - Aggregated Weight Distribution'
-
-        save_histogram(
-            all_weights, all_metrics,
-            output_title,
-            output_filename,
-            sparsity_ratio=args.sparsity_ratio
-        )
+        import csv
+        with open(csv_filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Layer Type', 'Mean', 'Std', 'Kurtosis', 'Max/Mean', '%Outliers'])
+            
+            for layer_name in sorted(activation_stats.keys()):
+                stats = activation_stats[layer_name]
+                avg_mean = np.mean(stats['mean'])
+                avg_std = np.mean(stats['std'])
+                avg_kurtosis = np.mean(stats['kurtosis'])
+                avg_max_mean = np.mean(stats['max_mean_ratio'])
+                avg_pct_outliers = np.mean(stats['pct_outliers'])
+                
+                writer.writerow([layer_name, avg_mean, avg_std, avg_kurtosis, avg_max_mean, avg_pct_outliers])
+        
+        print(f"Activation statistics saved to: {csv_filename}\n")
     ######################################
     model.config.use_cache = use_cache 
     torch.cuda.empty_cache()
