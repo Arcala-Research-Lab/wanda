@@ -1,0 +1,10 @@
+{
+  "pwconv1": {
+    "weight_power": 1.5,
+    "wanda_power": 0.8
+  },
+  "pwconv2": {
+    "weight_power": 1.75,
+    "wanda_power": 1.0
+  }
+}

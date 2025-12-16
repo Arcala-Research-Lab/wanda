@@ -225,3 +225,84 @@ def prune_convnext(args, model, calib_data, device):
 
             subset[name].weight.data[W_mask] = 0
         ##############################################
+
+def prune_convnext_eq(args, model, calib_data, device):
+    print("Using Wanda-EQ pruning...")
+    import json
+    import os
+    
+    inps = calib_data 
+    bs = inps.shape[0]
+    require_forward = True 
+
+    # Load layerwise scaling powers from JSON file if provided
+    layerwise_powers = {}
+    if hasattr(args, 'layerwise_powers_json') and args.layerwise_powers_json:
+        if os.path.exists(args.layerwise_powers_json):
+            with open(args.layerwise_powers_json, 'r') as f:
+                layerwise_powers = json.load(f)
+            print(f"Loaded layerwise powers from {args.layerwise_powers_json}")
+        else:
+            print(f"Warning: JSON file {args.layerwise_powers_json} not found, using default values")
+
+    thresh = None 
+    for block_id in range(4):
+        print(f"block {block_id}")
+        subset = find_layers(model.stages[block_id])
+
+        if require_forward:
+            layer = model.downsample_layers[block_id]
+            if bs > 1024:
+                tmp_res = []
+                for i1 in range(0, bs, 512):
+                    j1 = min(i1+512, bs)
+                    tmp_res.append(layer(inps[i1:j1]))
+                inps = torch.cat(tmp_res, dim=0)
+            else:
+                inps = layer(inps)
+
+            wrapped_layers = {}
+            for name in subset:
+                wrapped_layers[name] = WrappedLayer(subset[name])
+
+            def add_batch(name):
+                def tmp(_, inp, out):
+                    wrapped_layers[name].add_batch(inp[0].data, out.data)
+                return tmp
+
+            handles = []
+            for name in wrapped_layers:
+               handles.append(subset[name].register_forward_hook(add_batch(name)))
+            layer = model.stages[block_id]
+            if bs > 1024:
+                tmp_res = []
+                for i1 in range(0, bs, 512):
+                    j1 = min(i1+512, bs)
+                    tmp_res.append(layer(inps[i1:j1]))
+                inps = torch.cat(tmp_res, dim=0)
+            else:
+                inps = layer(inps)
+            for h in handles:
+                h.remove()
+
+        ################# pruning ###################
+        for name in subset:
+            weights = torch.abs(subset[name].weight.data)
+            wanda_scale = torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+            
+            weight_power = 1.0
+            wanda_power = 1.0
+            
+            layer_type = name.split('.')[-1]
+
+            if layer_type in layerwise_powers:
+                weight_power = layerwise_powers[layer_type].get('weight_power', 1.0)
+                wanda_power = layerwise_powers[layer_type].get('wanda_power', 1.0)
+                print(f"  Layer {name}: using weight_power={weight_power}, wanda_power={wanda_power}")
+            
+            W_metric = torch.pow(weights, weight_power) * torch.pow(wanda_scale, wanda_power)
+
+            W_mask = compute_mask(W_metric, args.prune_granularity, args.sparsity)
+
+            subset[name].weight.data[W_mask] = 0
+        ##############################################

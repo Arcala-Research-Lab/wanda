@@ -250,10 +250,64 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
                 # structured n:m sparsity
-                for ii in range(W_metric.shape[1]):
-                    if ii % prune_m == 0:
-                        tmp = W_metric[:,ii:(ii+prune_m)].float()
-                        W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
+                # for ii in range(W_metric.shape[1]):
+                #     if ii % prune_m == 0:
+                #         tmp = W_metric[:,ii:(ii+prune_m)].float()
+                #         W_mask.scatter_(1,ii+torch.topk(tmp, prune_n,dim=1, largest=False)[1], True)
+                
+                
+                #pairwise 4:8 pruning
+                # W_reshaped = W_metric.view(W_metric.shape[0], -1, 4, 2)
+                # pair_metric = W_reshaped.sum(dim=-1)
+                # _, indices = torch.topk(pair_metric, k=2, dim=-1, largest=False)
+                # pair_mask = torch.zeros_like(pair_metric, dtype=torch.bool)
+                # pair_mask.scatter_(2, indices, True)
+                # mask_reshaped = W_mask.view(W_metric.shape[0], -1, 4, 2)
+                # mask_reshaped.copy_(pair_mask.unsqueeze(-1).expand(-1, -1, -1, 2))
+
+
+                for ii in range(0, W_metric.shape[1], 8):
+                    # 1. Extract the block of 8 columns
+                    tmp = W_metric[:, ii:(ii+8)].float()
+                    
+                    # 2. Reshape to identify pairs (Batch, 4 pairs, 2 elements)
+                    # We have 4 pairs in a block of 8
+                    tmp_view = tmp.view(tmp.shape[0], 4, 2)
+                    
+                    # 3. Calculate the metric for each pair (sum of magnitudes)
+                    # sum: 73
+                    pair_metric = tmp_view.sum(dim=2)
+                    # max: 79
+                    # pair_metric = tmp_view.max(dim=2)[0]
+                    # diff: 898
+                    # pair_metric = (tmp_view.max(dim=2)[0] - tmp_view.min(dim=2)[0])
+                    # l2: 79
+                    # pair_metric = torch.sqrt((tmp_view ** 2).sum(dim=2))
+                    # mix: 69.9  - 7:3     69.35 - 5:5
+                    # pair_metric = 0.5 * tmp_view.max(dim=2)[0] + 0.5 * tmp_view.sum(dim=2)
+                    # Min + sum mix 79
+                    # pair_metric = 0.5 * tmp_view.min(dim=2)[0] + 0.5 * tmp_view.sum(dim=2)
+                    # L1.5 norm (between L1 and L2) 68.23
+                    # pair_metric = (tmp_view ** 1.5).sum(dim=2)
+                    # Try p-norms between 1.2-1.8
+                    # pair_metric = (tmp_view ** 1.3).sum(dim=2)  # or 1.4, 1.6, 1.7
+                    
+                    # 4. Find the indices of the 2 smallest pairs to prune
+                    # We want to prune 2 pairs out of 4
+                    _, pair_indices = torch.topk(pair_metric, k=2, dim=1, largest=False)
+                    
+                    # 5. Create a mask for the pairs in this block
+                    pair_mask = torch.zeros_like(pair_metric, dtype=torch.bool)
+                    pair_mask.scatter_(1, pair_indices, True)
+                    
+                    # 6. Expand the pair mask back to individual elements
+                    # If a pair is True, both elements in that pair become True
+                    element_mask = pair_mask.unsqueeze(-1).expand(-1, -1, 2).reshape(tmp.shape)
+                    
+                    # 7. Update the main mask
+                    W_mask[:, ii:(ii+8)] = element_mask
+
+                
             else:
                 sort_res = torch.sort(W_metric, dim=-1, stable=True)
 

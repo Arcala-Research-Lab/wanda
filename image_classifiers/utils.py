@@ -17,7 +17,12 @@ from pathlib import Path
 from timm.models import create_model
 import torch
 import torch.distributed as dist
-from torch._six import inf
+
+# torch._six was removed in newer PyTorch versions
+try:
+    from torch._six import inf
+except ImportError:
+    inf = float('inf')
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a

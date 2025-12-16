@@ -14,7 +14,7 @@ import time
 from lib.prune import prune_wanda, prune_magnitude, prune_sparsegpt, prune_ablate, check_sparsity, prune_mag_mask, prune_wanda_mask
 from lib.eval import eval_ppl, eval_zero_shot
 from lib.awq_mask import awq_mask, get_thresholds
-from lib.results import save_results_to_file
+# from lib.results import save_results_to_file
 
 try:
     from lib.awq_pre_quant_no_apply import run_awq
@@ -59,7 +59,7 @@ def main():
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["baseline", "unstructured", "4:8", "2:4"])
     parser.add_argument("--prune_method", type=str, choices=["baseline", "magnitude", "wanda", "sparsegpt", 
-                        "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search"])
+                        "ablate_mag_seq", "ablate_wanda_seq", "ablate_mag_iter", "ablate_wanda_iter", "search", "pairwise"])
     parser.add_argument("--seqlen", type=int, default=2048, help='Fixed sequence length for the model')
     parser.add_argument("--eval_seqlen", type=int, default=0)
     parser.add_argument("--cache_dir", default="llm_weights", type=str )
@@ -305,18 +305,18 @@ def main():
     current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Save to single results file
-    save_results_to_file(
-        args.save,
-        current_date,
-        args.model,
-        getattr(args, 'prune_method', None),
-        getattr(args, 'sparsity_type', None),
-        args.seqlen,
-        sparsity_ratio,
-        total_time,
-        ppl_test,
-        getattr(args, 'layerwise_scaling', False)
-    )
+    # save_results_to_file(
+    #     args.save,
+    #     current_date,
+    #     args.model,
+    #     getattr(args, 'prune_method', None),
+    #     getattr(args, 'sparsity_type', None),
+    #     args.seqlen,
+    #     sparsity_ratio,
+    #     total_time,
+    #     ppl_test,
+    #     getattr(args, 'layerwise_scaling', False)
+    # )
     
     # Also keep the old format for backward compatibility
     if not os.path.exists(args.save):

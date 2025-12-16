@@ -1,0 +1,14 @@
+{
+  "dwconv": {
+    "weight_power": 1.0,
+    "wanda_power": 1.0
+  },
+  "pwconv1": {
+    "weight_power": 1.2,
+    "wanda_power": 0.9
+  },
+  "pwconv2": {
+    "weight_power": 1.5,
+    "wanda_power": 0.8
+  }
+}

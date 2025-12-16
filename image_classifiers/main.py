@@ -34,7 +34,7 @@ import models.swin_transformer
 import models.mlp_mixer
 import models.deit 
 
-from prune_utils import prune_convnext, prune_deit, prune_vit, check_sparsity 
+from prune_utils import prune_convnext, prune_deit, prune_vit, check_sparsity, prune_convnext_eq
 
 def str2bool(v):
     """
@@ -222,6 +222,8 @@ def get_args_parser():
     parser.add_argument("--prune_metric", type=str, choices=["magnitude", "wanda"])
     parser.add_argument("--prune_granularity", type=str)
     parser.add_argument("--blocksize", type=int, default=1)
+    parser.add_argument("--layerwise_powers_json", type=str, default=None, 
+                    help="Path to JSON file with layerwise weight/wanda powers for EQ pruning")
 
     return parser
 
@@ -325,7 +327,8 @@ def main(args):
     if args.sparsity != 0:
         with torch.no_grad():
             if "convnext" in args.model:
-                prune_convnext(args, model, calib_data, device)
+                prune_convnext_eq(args, model, calib_data, device)
+                # prune_convnext(args, model, calib_data, device)
             elif "vit" in args.model:
                 prune_vit(args, model, calib_data, device)
             elif "deit" in args.model:
